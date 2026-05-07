@@ -1,0 +1,18 @@
+# Gateway — prod environment (Kubernetes) fallback
+# (authoritative config served by Config Server)
+server:
+  port: 8080
+
+spring:
+  cloud:
+    kubernetes:
+      enabled: true
+      discovery:
+        enabled: true
+      config:
+        enabled: true
+
+logging:
+  level:
+    com.ebank.gateway: WARN
+    org.springframework.cloud.gateway: WARN

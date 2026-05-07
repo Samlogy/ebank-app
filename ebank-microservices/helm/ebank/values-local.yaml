@@ -1,0 +1,121 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# values-local.yaml — Minikube / local development overrides
+# Minimal resources, no TLS, images built directly into minikube's Docker daemon
+#
+# Usage:
+#   eval $(minikube docker-env)          ← point Docker CLI at minikube
+#   docker build -t ebank-auth:local ./auth
+#   helm upgrade --install ebank ./helm/ebank \
+#     -f helm/ebank/values.yaml \
+#     -f helm/ebank/values-local.yaml \
+#     --namespace ebank-local --create-namespace
+# ══════════════════════════════════════════════════════════════════════════════
+
+global:
+  registry: ""           # no registry prefix — images are local (ebank-auth:local)
+  imageTag: "local"
+  env: "docker"          # matches Vault paths already seeded in docker-compose
+
+  vault:
+    addr: "http://vault:8200"
+    tokenSecretName: "vault-token"
+    tokenSecretKey: "token"
+    token: "root"        # dev mode Vault root token
+
+vaultInit:
+  enabled: true
+
+# ── Auth ───────────────────────────────────────────────────────────────────────
+auth:
+  replicas: 1
+  autoscaling:
+    enabled: false
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "600Mi" }
+
+# ── Accounts ───────────────────────────────────────────────────────────────────
+accounts:
+  replicas: 1
+  autoscaling:
+    enabled: false
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "600Mi" }
+
+# ── Transactions ───────────────────────────────────────────────────────────────
+transactions:
+  replicas: 1
+  autoscaling:
+    enabled: false
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "600Mi" }
+
+# ── Notification ───────────────────────────────────────────────────────────────
+notification:
+  replicas: 1
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits:   { cpu: "200m", memory: "128Mi" }
+  smtp:
+    host: "mailhog"
+    port: "1025"
+    from: "noreply@ebank.com"
+
+# ── Gateway ────────────────────────────────────────────────────────────────────
+gateway:
+  replicas: 1
+  autoscaling:
+    enabled: false
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "500m", memory: "600Mi" }
+  ingress:
+    enabled: true
+    className: nginx
+    host: api.ebank.local    # add to /etc/hosts → minikube ip
+    tls: false
+    annotations: {}
+
+# ── Frontend ───────────────────────────────────────────────────────────────────
+frontend:
+  replicas: 1
+  resources:
+    requests: { cpu: "20m", memory: "32Mi" }
+    limits:   { cpu: "100m", memory: "64Mi" }
+  ingress:
+    enabled: true
+    className: nginx
+    host: ebank.local
+    tls: false
+    annotations: {}
+
+# ── Resource Quotas ────────────────────────────────────────────────────────────
+quotas:
+  enabled: true
+  requests:    { cpu: "4",      memory: "8Gi"  }
+  limits:      { cpu: "8",      memory: "16Gi" }
+  maxPods: "50"
+  maxServices: "30"
+  maxPVCs: "10"
+  defaultRequest:     { cpu: "50m",    memory: "64Mi"   }
+  defaultLimit:       { cpu: "300m",   memory: "512Mi"  }
+  maxPerContainer:    { cpu: "1500m",  memory: "1.5Gi"  }
+  maxPerPod:          { cpu: "2",      memory: "2Gi"    }
+
+# ── Infrastructure — DISABLED for local: deployed via k8s/infra-local.yaml ────
+# Official Docker Hub images are used instead of Bitnami to avoid rate limits
+# and unavailable image tags. Run before Helm:
+#   kubectl apply -f k8s/infra-local.yaml -n ebank-local
+postgresql:
+  enabled: false
+
+mongodb:
+  enabled: false
+
+redis:
+  enabled: false
+
+kafka:
+  enabled: false

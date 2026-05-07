@@ -1,0 +1,43 @@
+{{- if and .Values.accounts.enabled .Values.accounts.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "ebank.fullname" . }}-accounts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: accounts
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "ebank.fullname" . }}-accounts
+  minReplicas: {{ .Values.accounts.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.accounts.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.accounts.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.accounts.autoscaling.targetMemoryUtilizationPercentage }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ .Values.accounts.autoscaling.scaleUpStabilizationSeconds | default 60 }}
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.accounts.autoscaling.scaleDownStabilizationSeconds | default 300 }}
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+{{- end }}

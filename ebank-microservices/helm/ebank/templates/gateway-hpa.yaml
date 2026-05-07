@@ -1,0 +1,44 @@
+{{- if and .Values.gateway.enabled .Values.gateway.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "ebank.fullname" . }}-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "ebank.fullname" . }}-gateway
+  minReplicas: {{ .Values.gateway.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.gateway.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.gateway.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.gateway.autoscaling.targetMemoryUtilizationPercentage }}
+  behavior:
+    scaleUp:
+      # React fast to traffic spikes at the entry point
+      stabilizationWindowSeconds: {{ .Values.gateway.autoscaling.scaleUpStabilizationSeconds | default 30 }}
+      policies:
+        - type: Pods
+          value: 3              # allow adding 3 pods per burst (gateway is critical)
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.gateway.autoscaling.scaleDownStabilizationSeconds | default 300 }}
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+{{- end }}

@@ -1,0 +1,19 @@
+# Auth Service — recf (staging) environment fallback
+# (authoritative config served by Config Server)
+server:
+  port: 8081
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %X{traceId:-no-trace} - %msg%n"
+  level:
+    com.ebank.auth: INFO
+    org.springframework.security: WARN
+
+error:
+  handling:
+    show-details: false
+    include-stacktrace: false
+    include-validation-errors: true
+    include-trace-id: true
+    trace-id-header: X-Trace-Id

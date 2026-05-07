@@ -1,0 +1,98 @@
+{{/*
+gateway-deployment.yaml — Spring Cloud Gateway (sole external entry point)
+
+WHY gateway is special:
+  - Only service exposed to the outside world via Ingress
+  - All other services are ClusterIP (no external access)
+  - Handles JWT validation, rate limiting (Redis), CORS, routing
+  - Highest HPA maxReplicas (30) — single bottleneck for all traffic
+  - Lower CPU target (60%) — scale earlier than backend services to avoid
+    latency spikes at the entry point
+
+PRESTOP hook:
+  Adds a 5s sleep before SIGTERM so in-flight requests complete.
+  WHY: K8s removes pod from Service endpoints ~async. Without this delay,
+  new requests may still arrive at the pod while Spring is shutting down.
+*/}}
+{{- if .Values.gateway.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ebank.fullname" . }}-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  {{- if not .Values.gateway.autoscaling.enabled }}
+  replicas: {{ .Values.gateway.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ebank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "ebank.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway
+      annotations:
+        checksum/values: {{ .Values | toYaml | sha256sum | trunc 8 }}
+    spec:
+      terminationGracePeriodSeconds: 35   # 5s preStop + 30s Spring shutdown
+
+      initContainers:
+        {{- include "ebank.waitForVault" . | nindent 8 }}
+
+      containers:
+        - name: gateway
+          image: {{ include "ebank.image" (dict "service" .Values.gateway "global" .Values.global) }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: {{ .Values.gateway.port }}
+              protocol: TCP
+          env:
+            {{- include "ebank.vaultEnv" . | nindent 12 }}
+            {{- include "ebank.springProfileEnv" . | nindent 12 }}
+
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+
+          lifecycle:
+            preStop:
+              exec:
+                # Delay SIGTERM by 5s to drain in-flight requests
+                command: ["/bin/sh", "-c", "sleep 5"]
+
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: {{ .Values.gateway.probes.liveness.periodSeconds }}
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 0
+            periodSeconds: {{ .Values.gateway.probes.readiness.periodSeconds }}
+            failureThreshold: 3
+            timeoutSeconds: 5
+{{- end }}

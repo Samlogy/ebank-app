@@ -1,0 +1,20 @@
+{{- if .Values.notification.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ebank.fullname" . }}-notification
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notification
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ebank.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: notification
+  ports:
+    - name: http
+      port: {{ .Values.notification.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

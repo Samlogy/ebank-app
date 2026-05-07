@@ -1,0 +1,233 @@
+{{/*
+vault-init-job.yaml — Seeds K8s-specific secrets into Vault for each service.
+
+WHY this is needed:
+  In docker-compose, vault-init seeds URLs like "postgres:5432", "kafka:9092".
+  In K8s, Bitnami chart creates services named "<release>-postgresql", "<release>-kafka".
+  This Job runs AFTER all services are up and writes the correct K8s URLs.
+
+WHEN it runs:
+  - As a Helm post-install + post-upgrade hook
+  - Runs once per install/upgrade, then the Job pod completes and stays for inspection
+  - Re-runs on each `helm upgrade` (hook-delete-policy cleans up the old Job first)
+
+HOW it works:
+  1. Init container waits for Vault to be reachable
+  2. Main container runs `vault kv put` commands for each service × each env profile
+*/}}
+{{- if .Values.vaultInit.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ebank.fullname" . }}-vault-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vault-init
+  annotations:
+    # pre-install,pre-upgrade: runs BEFORE Deployments are created.
+    # WHY: Spring services read config from Vault at pod startup. Secrets must
+    #      exist in Vault before the first pod starts. post-install is too late.
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation   # delete old Job before re-running
+spec:
+  ttlSecondsAfterFinished: 600                          # auto-clean completed Job after 10 min
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "ebank.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: vault-init
+    spec:
+      restartPolicy: OnFailure
+
+      initContainers:
+        # Wait for Vault to be reachable before seeding secrets
+        - name: wait-vault
+          image: curlimages/curl:8.7.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for Vault at {{ .Values.global.vault.addr }}..."
+              until curl -sf {{ .Values.global.vault.addr }}/v1/sys/health; do
+                echo "  Vault not ready, retrying..."; sleep 5
+              done
+              echo "Vault is ready."
+          resources:
+            requests: { cpu: "10m", memory: "16Mi" }
+            limits:   { cpu: "50m", memory: "32Mi" }
+
+      containers:
+        - name: vault-init
+          image: hashicorp/vault:1.17
+          env:
+            - name: VAULT_ADDR
+              value: {{ .Values.global.vault.addr | quote }}
+            # Use value directly — the vault-init Job is a pre-install hook,
+            # so it runs before regular resources (including vault-token Secret).
+            # Spring services use the K8s Secret; this Job reads from values directly.
+            - name: VAULT_TOKEN
+              value: {{ required "global.vault.token must be set" .Values.global.vault.token | quote }}
+            # Computed service hostnames from Bitnami chart naming
+            - name: PG_HOST
+              value: "{{ include "ebank.postgresHost" . }}"
+            - name: MONGO_HOST
+              value: "{{ include "ebank.mongoHost" . }}"
+            - name: REDIS_HOST
+              value: "{{ include "ebank.redisHost" . }}"
+            - name: KAFKA_HOST
+              value: "{{ include "ebank.kafkaHost" . }}"
+            - name: ENV_PROFILE
+              value: {{ .Values.global.env | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              PROFILE="${ENV_PROFILE}"
+              BASE="$VAULT_ADDR/v1"
+
+              # WHY wget instead of vault CLI:
+              # vault kv put with multiline shell continuation (\) fails silently
+              # in K8s pod command context. Direct HTTP API is 100% reliable.
+              # WHY --post-file: wget --post-data URL-encodes the body (breaks JSON).
+              #                  --post-file sends raw bytes, required for JSON.
+
+              # Helper: POST JSON file to Vault KV v2
+              kv_put() {
+                path="$1"; file="$2"
+                wget -qO- \
+                  --post-file="$file" \
+                  --header="X-Vault-Token: $VAULT_TOKEN" \
+                  --header="Content-Type: application/json" \
+                  "$BASE/secret/data/$path" && echo " OK" || { echo " FAILED $path"; exit 1; }
+              }
+
+              # Enable KV v2 (idempotent — ok if already enabled)
+              printf '{"type":"kv","options":{"version":"2"}}' > /tmp/kv.json
+              wget -qO- --post-file=/tmp/kv.json \
+                --header="X-Vault-Token: $VAULT_TOKEN" \
+                --header="Content-Type: application/json" \
+                "$BASE/sys/mounts/secret" >/dev/null 2>&1 || true
+              echo "==> KV v2 ready. Seeding profile: $PROFILE"
+
+              # ── AUTH SERVICE ─────────────────────────────────────────────
+              printf '{
+                "data": {
+                  "server.port": "8081",
+                  "spring.datasource.url": "jdbc:postgresql://%s:5432/auth_db",
+                  "spring.datasource.username": "postgres",
+                  "spring.datasource.password": "postgres",
+                  "spring.datasource.driver-class-name": "org.postgresql.Driver",
+                  "spring.jpa.hibernate.ddl-auto": "none",
+                  "spring.flyway.enabled": "true",
+                  "spring.flyway.url": "jdbc:postgresql://%s:5432/auth_db",
+                  "spring.flyway.user": "postgres",
+                  "spring.flyway.password": "postgres",
+                  "spring.flyway.locations": "classpath:db/migration",
+                  "spring.flyway.connect-retries": "5",
+                  "spring.flyway.baseline-on-migrate": "true",
+                  "spring.flyway.baseline-version": "1.0.0",
+                  "spring.data.redis.host": "%s",
+                  "spring.data.redis.port": "6379",
+                  "spring.data.redis.password": "redispass",
+                  "jwt.secret": "ebank-super-secret-jwt-key-min-32-chars-2024",
+                  "jwt.expiration": "900000",
+                  "jwt.refresh-expiration": "604800000",
+                  "management.endpoints.web.exposure.include": "health,info,metrics,prometheus,refresh",
+                  "management.endpoint.health.show-details": "ALWAYS",
+                  "management.metrics.tags.service": "auth-service",
+                  "management.metrics.tags.env": "%s",
+                  "management.tracing.sampling.probability": "1.0"
+                }
+              }' "$PG_HOST" "$PG_HOST" "$REDIS_HOST" "$PROFILE" > /tmp/auth.json
+              printf "  auth-service..."; kv_put "ebank/auth-service/$PROFILE" /tmp/auth.json
+
+              # ── ACCOUNTS SERVICE ──────────────────────────────────────────
+              printf '{
+                "data": {
+                  "server.port": "8082",
+                  "spring.r2dbc.url": "r2dbc:postgresql://%s:5432/accounts_db",
+                  "spring.r2dbc.username": "postgres",
+                  "spring.r2dbc.password": "postgres",
+                  "spring.flyway.url": "jdbc:postgresql://%s:5432/accounts_db",
+                  "spring.flyway.user": "postgres",
+                  "spring.flyway.password": "postgres",
+                  "spring.flyway.enabled": "true",
+                  "spring.flyway.locations": "classpath:db/migration",
+                  "spring.flyway.connect-retries": "5",
+                  "spring.flyway.baseline-on-migrate": "true",
+                  "spring.flyway.baseline-version": "1.0.0",
+                  "spring.data.redis.host": "%s",
+                  "spring.data.redis.port": "6379",
+                  "spring.data.redis.password": "redispass",
+                  "spring.data.redis.timeout": "5000",
+                  "management.endpoints.web.exposure.include": "health,info,metrics,prometheus,refresh",
+                  "management.endpoint.health.show-details": "ALWAYS",
+                  "management.metrics.tags.service": "accounts-service",
+                  "management.metrics.tags.env": "%s",
+                  "management.tracing.sampling.probability": "1.0"
+                }
+              }' "$PG_HOST" "$PG_HOST" "$REDIS_HOST" "$PROFILE" > /tmp/accounts.json
+              printf "  accounts-service..."; kv_put "ebank/accounts-service/$PROFILE" /tmp/accounts.json
+
+              # ── TRANSACTION SERVICE ───────────────────────────────────────
+              printf '{
+                "data": {
+                  "server.port": "8083",
+                  "spring.data.mongodb.uri": "mongodb://mongo:mongopass@%s:27017/transactions_db?authSource=admin",
+                  "spring.kafka.bootstrap-servers": "%s:9092",
+                  "spring.data.redis.host": "%s",
+                  "spring.data.redis.port": "6379",
+                  "spring.data.redis.password": "redispass",
+                  "spring.data.redis.timeout": "5000",
+                  "management.endpoints.web.exposure.include": "health,info,metrics,prometheus,refresh",
+                  "management.endpoint.health.show-details": "ALWAYS",
+                  "management.metrics.tags.service": "transaction-service",
+                  "management.metrics.tags.env": "%s",
+                  "management.tracing.sampling.probability": "1.0"
+                }
+              }' "$MONGO_HOST" "$KAFKA_HOST" "$REDIS_HOST" "$PROFILE" > /tmp/transactions.json
+              printf "  transaction-service..."; kv_put "ebank/transaction-service/$PROFILE" /tmp/transactions.json
+
+              # ── GATEWAY ───────────────────────────────────────────────────
+              printf '{
+                "data": {
+                  "server.port": "8080",
+                  "spring.data.redis.host": "%s",
+                  "spring.data.redis.port": "6379",
+                  "spring.data.redis.password": "redispass",
+                  "jwt.secret": "ebank-super-secret-jwt-key-min-32-chars-2024",
+                  "auth.service.url": "http://{{ include "ebank.fullname" . }}-auth:8081",
+                  "accounts.service.url": "http://{{ include "ebank.fullname" . }}-accounts:8082",
+                  "transaction.service.url": "http://{{ include "ebank.fullname" . }}-transactions:8083",
+                  "notification.service.url": "http://{{ include "ebank.fullname" . }}-notification:3002",
+                  "management.endpoints.web.exposure.include": "health,info,metrics,prometheus",
+                  "management.endpoint.health.show-details": "ALWAYS",
+                  "management.metrics.tags.service": "gateway",
+                  "management.metrics.tags.env": "%s"
+                }
+              }' "$REDIS_HOST" "$PROFILE" > /tmp/gateway.json
+              printf "  gateway..."; kv_put "ebank/gateway/$PROFILE" /tmp/gateway.json
+
+              # ── NOTIFICATION SERVICE ──────────────────────────────────────
+              printf '{
+                "data": {
+                  "port": "3002",
+                  "kafka.brokers": "%s:9092",
+                  "kafka.groupId": "notification-group",
+                  "smtp.host": "{{ .Values.notification.smtp.host }}",
+                  "smtp.port": "{{ .Values.notification.smtp.port }}",
+                  "smtp.from": "{{ .Values.notification.smtp.from }}",
+                  "logging.level": "info"
+                }
+              }' "$KAFKA_HOST" > /tmp/notification.json
+              printf "  notification-service..."; kv_put "ebank/notification-service/$PROFILE" /tmp/notification.json
+
+              echo "==> Vault init complete for profile: $PROFILE"
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { cpu: "200m", memory: "128Mi" }
+{{- end }}

@@ -1,0 +1,192 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# grafana-dashboards.yaml — Auto-provision Grafana dashboards.
+#
+# Grafana sidecar watches ConfigMaps with label grafana_dashboard=1 and
+# loads them as dashboard JSON at startup (or hot-reload without restart).
+#
+# Two dashboards:
+#   1. ebank-jvm     — JVM heap, GC, threads, HikariCP pool per service
+#   2. ebank-api     — HTTP request rate, error rate, p99 latency, Kafka lag
+# ══════════════════════════════════════════════════════════════════════════════
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-ebank-jvm
+  namespace: ebank-local
+  labels:
+    grafana_dashboard: "1"
+data:
+  ebank-jvm.json: |
+    {
+      "title": "ebank — JVM & Infrastructure",
+      "uid": "ebank-jvm",
+      "schemaVersion": 38,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "service",
+            "type": "query",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "query": "label_values(jvm_memory_used_bytes{namespace=\"ebank-local\"}, job)",
+            "multi": true,
+            "includeAll": true,
+            "current": { "text": "All", "value": "$__all" }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1, "type": "timeseries", "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "title": "JVM Heap Used (MB)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "jvm_memory_used_bytes{namespace=\"ebank-local\", area=\"heap\", job=~\"$service\"} / 1024 / 1024",
+            "legendFormat": "{{job}} heap"
+          }],
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 2, "type": "timeseries", "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "title": "JVM GC Pause Time (ms/s)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "rate(jvm_gc_pause_seconds_sum{namespace=\"ebank-local\", job=~\"$service\"}[2m]) * 1000",
+            "legendFormat": "{{job}} {{action}}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "ms" } }
+        },
+        {
+          "id": 3, "type": "timeseries", "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "title": "HikariCP Active Connections",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "hikaricp_connections_active{namespace=\"ebank-local\", job=~\"$service\"}",
+            "legendFormat": "{{job}}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 4, "type": "timeseries", "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "title": "JVM Threads",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "jvm_threads_live_threads{namespace=\"ebank-local\", job=~\"$service\"}", "legendFormat": "{{job}} live" },
+            { "expr": "jvm_threads_daemon_threads{namespace=\"ebank-local\", job=~\"$service\"}", "legendFormat": "{{job}} daemon" }
+          ]
+        },
+        {
+          "id": 5, "type": "timeseries", "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+          "title": "CPU Usage per Pod",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "rate(container_cpu_usage_seconds_total{namespace=\"ebank-local\", container!=\"\", container!=\"POD\"}[2m])",
+            "legendFormat": "{{pod}}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "percentunit" } }
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-ebank-api
+  namespace: ebank-local
+  labels:
+    grafana_dashboard: "1"
+data:
+  ebank-api.json: |
+    {
+      "title": "ebank — API & Business Metrics",
+      "uid": "ebank-api",
+      "schemaVersion": 38,
+      "refresh": "15s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "service",
+            "type": "query",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "query": "label_values(http_server_requests_seconds_count{namespace=\"ebank-local\"}, job)",
+            "multi": true,
+            "includeAll": true
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1, "type": "stat", "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+          "title": "Request Rate (req/s)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "sum(rate(http_server_requests_seconds_count{namespace=\"ebank-local\", job=~\"$service\"}[2m]))",
+            "legendFormat": "rps"
+          }],
+          "fieldConfig": { "defaults": { "unit": "reqps", "thresholds": { "steps": [{"color":"green"},{"color":"yellow","value":100},{"color":"red","value":500}] } } }
+        },
+        {
+          "id": 2, "type": "stat", "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+          "title": "Error Rate (5xx)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "sum(rate(http_server_requests_seconds_count{namespace=\"ebank-local\", job=~\"$service\", status=~\"5..\"}[2m])) / sum(rate(http_server_requests_seconds_count{namespace=\"ebank-local\", job=~\"$service\"}[2m]))",
+            "legendFormat": "error rate"
+          }],
+          "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "steps": [{"color":"green"},{"color":"yellow","value":0.01},{"color":"red","value":0.05}] } } }
+        },
+        {
+          "id": 3, "type": "stat", "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+          "title": "p99 Latency (ms)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{namespace=\"ebank-local\", job=~\"$service\"}[2m]))) * 1000",
+            "legendFormat": "p99"
+          }],
+          "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "steps": [{"color":"green"},{"color":"yellow","value":200},{"color":"red","value":1000}] } } }
+        },
+        {
+          "id": 4, "type": "stat", "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+          "title": "Kafka Consumer Lag",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "sum(spring_kafka_consumer_lag{namespace=\"ebank-local\"})",
+            "legendFormat": "lag"
+          }],
+          "fieldConfig": { "defaults": { "thresholds": { "steps": [{"color":"green"},{"color":"yellow","value":100},{"color":"red","value":1000}] } } }
+        },
+        {
+          "id": 5, "type": "timeseries", "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+          "title": "HTTP Request Rate by Service",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [{
+            "expr": "sum by (job) (rate(http_server_requests_seconds_count{namespace=\"ebank-local\", job=~\"$service\"}[2m]))",
+            "legendFormat": "{{job}}"
+          }],
+          "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 6, "type": "timeseries", "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+          "title": "Latency Percentiles (p50 / p95 / p99)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, sum by (le,job) (rate(http_server_requests_seconds_bucket{namespace=\"ebank-local\", job=~\"$service\"}[2m]))) * 1000", "legendFormat": "{{job}} p50" },
+            { "expr": "histogram_quantile(0.95, sum by (le,job) (rate(http_server_requests_seconds_bucket{namespace=\"ebank-local\", job=~\"$service\"}[2m]))) * 1000", "legendFormat": "{{job}} p95" },
+            { "expr": "histogram_quantile(0.99, sum by (le,job) (rate(http_server_requests_seconds_bucket{namespace=\"ebank-local\", job=~\"$service\"}[2m]))) * 1000", "legendFormat": "{{job}} p99" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms" } }
+        },
+        {
+          "id": 7, "type": "timeseries", "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+          "title": "HTTP Errors (4xx / 5xx)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum by (job) (rate(http_server_requests_seconds_count{namespace=\"ebank-local\", job=~\"$service\", status=~\"4..\"}[2m]))", "legendFormat": "{{job}} 4xx" },
+            { "expr": "sum by (job) (rate(http_server_requests_seconds_count{namespace=\"ebank-local\", job=~\"$service\", status=~\"5..\"}[2m]))", "legendFormat": "{{job}} 5xx" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } } }
+        }
+      ]
+    }

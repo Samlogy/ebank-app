@@ -1,0 +1,63 @@
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:postgresql://accounts-db:5432/accountsDB
+    username: postgres
+    password: postgres
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+
+  jpa:
+    hibernate:
+      ddl-auto: update  # En Docker, on peut laisser Hibernate gérer le schéma
+    show-sql: true      # Utile pour le debugging
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+
+  flyway: # Migration => SQL
+    baselineOnMigrate: true
+    enabled: true
+    locations: classpath:db.migration
+    baseline-on-migrate: true
+    user: ${spring.datasource.username}
+    password: ${spring.datasource.password}
+    baseline-version: 0
+    baseline-description: "init"
+
+  # redis (cache)
+  data:
+    redis:
+      host: redis
+      port: 6379
+
+# dev conf => logging (logs will appear in the console when running locally).
+logging:
+#  file:
+#    name: logs/accounts-recf.log
+#    max-size: 100MB
+#    max-history: 30
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+  level:
+    com.ebank.accounts: WARN
+    org.springframework.web: INFO
+    org.hibernate.SQL: INFO
+
+# error handling => PROD
+error:
+  handling:
+    show-details: false
+    include-stacktrace: false
+    include-validation-errors: true
+    include-trace-id: true
+    trace-id-header: X-Trace-Id

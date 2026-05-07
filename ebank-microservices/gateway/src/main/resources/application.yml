@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: gateway
+
+  profiles:
+    active: local   # local par défaut → application-local.yml fournit les valeurs
+
+  # Connexion directe à Vault — toute la config de l'app vient de Vault
+  # Chemin lu: secret/ebank/gateway  +  secret/ebank/gateway/{profil}
+  config:
+    import: "optional:vault://"
+
+  cloud:
+    vault:
+      uri: ${VAULT_URI:http://localhost:8200}
+      token: ${VAULT_TOKEN:root}
+      kv:
+        enabled: true
+        backend: secret
+        application-name: ebank/gateway
+        default-context: ""
+        profile-separator: "/"

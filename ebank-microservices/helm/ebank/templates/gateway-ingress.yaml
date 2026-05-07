@@ -1,0 +1,55 @@
+{{/*
+gateway-ingress.yaml — Exposes the gateway to the outside world
+
+HOW Ingress works:
+  Internet → Cloud LoadBalancer → nginx-ingress controller Pod
+           → Ingress rules match Host header + path
+           → routes to gateway Service → gateway Pod
+
+WHY only gateway is exposed:
+  All other services are ClusterIP (cluster-internal only).
+  Clients never talk to auth/accounts/transactions directly.
+  Security: attack surface reduced to one entry point.
+
+TLS:
+  When tls: true, cert-manager automatically requests a Let's Encrypt cert
+  for the host and stores it in the tlsSecretName K8s Secret.
+  cert-manager must be installed first:
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+*/}}
+{{- if and .Values.gateway.enabled .Values.gateway.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ebank.fullname" . }}-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+  annotations:
+    {{- if .Values.gateway.ingress.tls }}
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    {{- end }}
+    {{- with .Values.gateway.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.gateway.ingress.className | quote }}
+  {{- if .Values.gateway.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.gateway.ingress.host | quote }}
+      secretName: {{ .Values.gateway.ingress.tlsSecretName | quote }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.gateway.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "ebank.fullname" . }}-gateway
+                port:
+                  name: http
+{{- end }}

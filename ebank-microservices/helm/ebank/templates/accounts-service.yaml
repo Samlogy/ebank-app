@@ -1,0 +1,20 @@
+{{- if .Values.accounts.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ebank.fullname" . }}-accounts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: accounts
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "ebank.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: accounts
+  ports:
+    - name: http
+      port: {{ .Values.accounts.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

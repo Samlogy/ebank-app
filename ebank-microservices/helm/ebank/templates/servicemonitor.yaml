@@ -1,0 +1,56 @@
+{{/*
+servicemonitor.yaml — Tells kube-prometheus-stack to scrape ebank Spring Boot services.
+
+HOW it works:
+  Prometheus Operator watches ServiceMonitor CRDs cluster-wide.
+  When it finds one, it generates a Prometheus scrape config targeting
+  the Service endpoints matching the selector labels.
+
+WHY one ServiceMonitor for all services (not per-service):
+  All ebank services expose /actuator/prometheus on the same label
+  (app.kubernetes.io/instance: ebank). One resource is simpler and
+  scales automatically when new services are added.
+
+REQUIRES: kube-prometheus-stack or prometheus-operator installed.
+  helm install monitoring prometheus-community/kube-prometheus-stack -n monitoring
+*/}}
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "ebank.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    # This label is required by kube-prometheus-stack's Prometheus instance
+    # to discover ServiceMonitors. The default selector is:
+    #   serviceMonitorSelector: { matchLabels: { release: monitoring } }
+    release: monitoring
+spec:
+  # Select all Services in this namespace that belong to this Helm release
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  # Only scrape the namespace where the release lives
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http                          # matches the port name in Service templates
+      path: /actuator/prometheus          # Spring Boot Prometheus endpoint
+      interval: {{ .Values.monitoring.scrapeInterval }}
+      scrapeTimeout: {{ .Values.monitoring.scrapeTimeout }}
+      # Honor labels from the app (service name, env, etc.)
+      honorLabels: false
+      relabelings:
+        # Add kubernetes namespace label to every metric
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        # Add pod name for per-instance drilldown
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        # Add service name as "job" label (Grafana uses this for filtering)
+        - sourceLabels: [__meta_kubernetes_service_label_app_kubernetes_io_component]
+          targetLabel: job
+          replacement: ${1}
+{{- end }}

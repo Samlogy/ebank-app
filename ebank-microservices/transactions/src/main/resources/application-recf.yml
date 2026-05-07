@@ -1,0 +1,33 @@
+server:
+  port: 8083
+
+spring:
+  mongodb:
+    uri: ${SPRING_DATA_MONGODB_URI:mongodb://mongo:mongopass@transactions-mongo:27017/transactions_db?authSource=admin}
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST:redis}
+      port: ${SPRING_REDIS_PORT:6379}
+      password: ${SPRING_REDIS_PASSWORD:redispass}
+
+# recf conf => structured logs
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %X{traceId:-no-trace} - %msg%n"
+  level:
+    com.ebank.transactions: WARN
+    org.springframework.web: INFO
+    org.springframework.data.mongodb: INFO
+
+# error handling => RECF (hide internals)
+error:
+  handling:
+    show-details: false
+    include-stacktrace: false
+    include-validation-errors: true
+    include-trace-id: true
+    trace-id-header: X-Trace-Id

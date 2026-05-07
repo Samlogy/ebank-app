@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: auth-service
+
+  profiles:
+    active: local   # local par défaut → application-local.yml fournit les valeurs
+
+  # Connexion directe à Vault — toute la config de l'app vient de Vault
+  # Chemin lu: secret/ebank/auth-service  +  secret/ebank/auth-service/{profil}
+  config:
+    import: "optional:vault://"
+
+  cloud:
+    vault:
+      uri: ${VAULT_URI:http://localhost:8200}
+      token: ${VAULT_TOKEN:root}
+      kv:
+        enabled: true
+        backend: secret
+        application-name: ebank/auth-service
+        default-context: ""
+        profile-separator: "/"
