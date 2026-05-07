@@ -1,0 +1,43 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ebank_db
+    username: ebank
+    password: ebank
+    driver-class-name: org.postgresql.Driver
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  mail:
+    host: localhost
+    port: 1025
+    username: ""
+    password: ""
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+
+jwt:
+  secret: my-very-long-super-secret-key-for-local-dev-only-min-256-bits
+  expiration: 900000        # 15 minutes
+  refresh-expiration: 604800000  # 7 days
+
+management:
+  otlp:
+    tracing:
+      endpoint: http://localhost:4318/v1/traces
+
+logging:
+  level:
+    com.ebank: DEBUG
+    org.springframework.security: DEBUG
+
+error:
+  handling:
+    show-details: true
+    include-stacktrace: true
