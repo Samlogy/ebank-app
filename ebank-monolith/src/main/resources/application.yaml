@@ -1,0 +1,46 @@
+spring:
+  application:
+    name: ebank-monolith
+  
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ebank_dev
+    username: ebank_user
+    password: ebank_password
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          batch_size: 20
+          fetch_size: 50
+  
+  security:
+    user:
+      name: admin
+      password: admin123
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+jwt:
+  # HS512 requires >= 64 bytes (512 bits). Generate with: openssl rand -hex 64
+  secret: dev-local-development-only-jwt-secret-key-replace-me-in-production
+  expiration: 86400000
+
+logging:
+  level:
+    root: INFO
+    com.ebank: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
