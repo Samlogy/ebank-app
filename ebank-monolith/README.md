@@ -1,137 +1,165 @@
-# eBank Monolith - Production-Ready Spring Boot Application
+# eBank Monolith
 
-A **modular monolithic Spring Boot application** designed for learning production-ready backend architecture. This project demonstrates clean architecture, domain-driven design, and containerization best practices.
+Spring Boot modular monolith — JWT auth, accounts, transfers, PostgreSQL.
+
+---
+
+## Architecture
+
+```mermaid
+graph TD
+    Client -->|HTTP + Bearer JWT| API
+
+    subgraph API["Spring Boot — port 8080"]
+        direction TB
+        AC[AuthController] --> AS[AuthService]
+        ACC[AccountController] --> ACS[AccountService]
+        TC[TransactionController] --> TS[TransactionService]
+
+        AS --> JP[JwtProvider]
+        AS --> UR[UserRepository]
+        ACS --> AR[AccountRepository]
+        TS --> TR[TransactionRepository]
+        TS --> AR
+
+        JF[JwtFilter] -.->|validates token| JP
+    end
+
+    subgraph DB["PostgreSQL"]
+        UR --> users
+        AR --> accounts
+        TR --> transactions
+    end
+```
+
+### Request flow (authenticated)
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant F as JwtFilter
+    participant Ctrl as Controller
+    participant Svc as Service
+    participant DB as PostgreSQL
+
+    C->>F: GET /api/v1/accounts  (Authorization: Bearer <token>)
+    F->>F: validate JWT → extract userId
+    F->>Ctrl: SecurityContext set with userId
+    Ctrl->>Svc: getUserAccounts(userId)
+    Svc->>DB: SELECT * FROM accounts WHERE user_id = ?
+    DB-->>Svc: rows
+    Svc-->>Ctrl: List<AccountResponse>
+    Ctrl-->>C: 200 OK { success: true, data: [...] }
+```
+
+---
+
+## Environments
+
+| | **local** | **test** | **prod** |
+|---|---|---|---|
+| Profile | `local` (or default) | *(auto via `@SpringBootTest`)* | `prod` |
+| Database | PostgreSQL `localhost:5432` | H2 in-memory | PostgreSQL (env vars) |
+| DDL | `update` | `create-drop` | `validate` |
+| SQL logs | on | off | off |
+| JWT secret | hardcoded dev key | hardcoded test key | `$JWT_SECRET` env var |
+| How to run | `./mvnw spring-boot:run` | `./mvnw test` | `docker compose up -d` |
+
+---
 
 ## Quick Start
 
+### Docker (recommended)
+
 ```bash
-# 1. Build the project
-./mvnw clean package
-
-# 2. Start with Docker Compose
-docker-compose up --build
-
-# 3. Access the API
-curl http://localhost:8080/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "password123",
-    "fullName": "John Doe"
-  }'
-
-# 4. View API docs
-http://localhost:8080/swagger-ui.html
+cp .env.example .env          # copy env template
+docker compose up -d --build  # build image + start postgres + app
+docker compose ps             # wait for (healthy) on both containers
+curl http://localhost:8081/actuator/health
 ```
+
+> Port **8081** is used to avoid conflicts. Change `"8081:8080"` → `"8080:8080"` in
+> `docker-compose.yml` if 8080 is free.
+
+### Local (app on JVM, DB in Docker)
+
+```bash
+docker compose up -d postgres              # start only PostgreSQL
+./mvnw spring-boot:run \
+  -Dspring-boot.run.profiles=local         # run app with local profile
+```
+
+### Tests
+
+```bash
+./mvnw test                                # all tests (H2, no Docker needed)
+./mvnw test -Dtest=AuthControllerTest      # single class
+```
+
+---
+
+## Example: full flow
+
+```bash
+BASE=http://localhost:8081
+
+# 1. Register
+TOKEN=$(curl -s -X POST $BASE/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"alice@bank.com","password":"Alice123!","fullName":"Alice"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['token'])")
+
+# 2. Create two accounts
+A1=$(curl -s -X POST $BASE/api/v1/accounts \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"accountType":"CHECKING"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+
+A2=$(curl -s -X POST $BASE/api/v1/accounts \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d '{"accountType":"SAVINGS"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['id'])")
+
+# 3. Transfer (will return "Insufficient balance" — accounts start at 0)
+curl -s -X POST $BASE/api/v1/transactions/accounts/$A1/transfer \
+  -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
+  -d "{\"toAccountId\":$A2,\"amount\":50,\"description\":\"Test\"}"
+```
+
+---
 
 ## Project Structure
 
 ```
-ebank-monolith/
-├── src/
-│   ├── main/java/com/ebank/
-│   │   ├── common/          # Shared infrastructure (JWT, security, exceptions)
-│   │   ├── auth/            # User authentication & registration
-│   │   ├── account/         # Account management
-│   │   ├── transaction/     # Transaction processing
-│   │   └── EbankMonolithApplication.java
-│   ├── test/java/com/ebank/ # Unit & integration tests
-│   └── resources/
-│       ├── application.yaml # Development config
-│       └── application-test.yaml
-├── Dockerfile
-├── docker-compose.yml
-├── pom.xml                  # Maven dependencies
-└── README.md
+src/main/
+├── java/com/ebank/
+│   ├── common/          # JWT, security filter, exception handler, base entity
+│   ├── auth/            # register · login · profile
+│   ├── account/         # create · list · get
+│   └── transaction/     # transfer · history
+└── resources/
+    ├── application.yaml          # base config (env-var overrideable defaults)
+    ├── application-local.yaml    # local dev (verbose SQL, localhost DB)
+    └── application-prod.yaml     # production (validate DDL, quiet logging)
+
+src/test/
+├── java/com/ebank/
+│   ├── auth/controller/AuthControllerTest.java
+│   └── auth/service/AuthServiceTest.java
+└── resources/
+    └── application.yaml          # H2 in-memory, fixed test JWT secret
 ```
 
-## Modules
+---
 
-| Module | Responsibility |
-|--------|-----------------|
-| **common** | Security, JWT, exceptions, shared DTOs |
-| **auth** | Register, login, JWT generation |
-| **account** | Create/list accounts, balance tracking|
-| **transaction** | Transfer money, transaction history |
-
-## API Endpoints
-
-### Authentication
-```
-POST   /api/v1/auth/register      - Register new user
-POST   /api/v1/auth/login         - Login & get JWT token
-GET    /api/v1/auth/me            - Get current user (auth required)
-```
-
-### Accounts
-```
-POST   /api/v1/accounts            - Create account (auth required)
-GET    /api/v1/accounts            - List user accounts (auth required)
-GET    /api/v1/accounts/{id}       - Get account details (auth required)
-```
-
-### Transactions
-```
-POST   /api/v1/transactions/accounts/{id}/transfer - Transfer money (auth required)
-GET    /api/v1/transactions/accounts/{id}/history  - Transaction history (auth required)
-```
-
-## Tech Stack
-
-- **Java 17** - Modern JVM language
-- **Spring Boot 3.3** - Production framework
-- **Spring Security + JWT** - Stateless authentication
-- **Spring Data JPA** - Database access
-- **PostgreSQL** - Relational database
-- **Docker** - Containerization
-- **JUnit 5, Mockito** - Testing
-
-## Testing
+### Production deployment
 
 ```bash
-# Run unit tests
-./mvnw test
+# Build and push image
+docker build -t your-registry/ebank-monolith:1.0.0 .
+docker push your-registry/ebank-monolith:1.0.0
 
-# Run specific test class
-./mvnw test -Dtest=AuthControllerTest
-
-# Run with coverage
-./mvnw clean test jacoco:report
+# On the server
+cp .env.prod.example .env         # fill in real secrets
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
-
-## Development
-
-```bash
-# Start development with local PostgreSQL
-docker-compose up postgres  # Start only the database
-./mvnw spring-boot:run      # Run the app
-
-# View live API docs
-http://localhost:8080/swagger-ui.html
-```
-
-## Production
-
-For production deployment:
-
-1. Update `application-prod.yaml` with production settings
-2. Use environment variables for sensitive data:
-   - `JWT_SECRET` - JWT signing key
-   - `SPRING_DATASOURCE_URL` - Database URL
-   - `SPRING_DATASOURCE_USERNAME` - DB username
-   - `SPRING_DATASOURCE_PASSWORD` - DB password
-
-3. Deploy the Docker image:
-```bash
-docker build -t ebank-monolith:latest .
-docker push your-registry/ebank-monolith:latest
-```
-
-## Learning Resources
-
-- See `ARCHITECTURE_PLAN.md` for complete system design
-- See `GETTING_STARTED.md` for detailed implementation guide
-
-## Author
-
-Built as a learning project for production-ready Spring Boot architecture.

@@ -1,13 +1,13 @@
 spring:
   application:
     name: ebank-monolith
-  
+
   datasource:
-    url: jdbc:postgresql://localhost:5432/ebank_dev
-    username: ebank_user
-    password: ebank_password
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/ebank_dev}
+    username: ${SPRING_DATASOURCE_USERNAME:ebank_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:ebank_password}
     driver-class-name: org.postgresql.Driver
-  
+
   jpa:
     hibernate:
       ddl-auto: update
@@ -18,20 +18,13 @@ spring:
         jdbc:
           batch_size: 20
           fetch_size: 50
-  
-  security:
-    user:
-      name: admin
-      password: admin123
 
 server:
-  port: 8080
-  servlet:
-    context-path: /
+  port: ${SERVER_PORT:8080}
 
 jwt:
-  # HS512 requires >= 64 bytes (512 bits). Generate with: openssl rand -hex 64
-  secret: dev-local-development-only-jwt-secret-key-replace-me-in-production
+  # HS512 requires >= 64 bytes. Generate production secret: openssl rand -hex 64
+  secret: ${JWT_SECRET:dev-local-development-only-jwt-secret-key-replace-me-in-production}
   expiration: 86400000
 
 logging:

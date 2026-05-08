@@ -1,0 +1,31 @@
+# Profile: prod
+# Activated by: SPRING_PROFILES_ACTIVE=prod  (set in docker-compose.yml)
+# All sensitive values must come from environment variables — no defaults here.
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+
+  jpa:
+    hibernate:
+      # Never auto-modify schema in production — fail fast if schema is wrong
+      ddl-auto: validate
+    show-sql: false
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:86400000}
+
+logging:
+  level:
+    root: WARN
+    com.ebank: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Expose only health in production — info may leak version/config
+        include: health

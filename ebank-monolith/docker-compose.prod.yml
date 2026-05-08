@@ -1,0 +1,26 @@
+# Production overrides — never used directly.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences from docker-compose.yml (dev):
+#  - app is pulled from a pre-built registry image instead of being built locally
+#  - resource limits enforced
+#  - PostgreSQL port NOT exposed to host (app reaches it through the internal network)
+#  - SPRING_JPA_HIBERNATE_DDL_AUTO=validate (schema must be managed separately)
+
+services:
+
+  postgres:
+    ports: !reset []        # do not expose 5432 to the host in production
+
+  app:
+    image: ${APP_IMAGE:your-registry/ebank-monolith:latest}
+    build: !reset null      # disable local build — use the registry image
+    environment:
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '1.0'
+        reservations:
+          memory: 256m

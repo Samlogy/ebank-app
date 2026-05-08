@@ -1,0 +1,6 @@
+# Loaded when @ActiveProfiles("test") is present
+# Pairs with src/test/resources/application.yaml (H2 datasource)
+jwt:
+  # HS512 requires exactly >= 64 bytes
+  secret: test-secret-key-for-unit-tests-only-must-be-at-least-64-bytes!!!
+  expiration: 3600000
