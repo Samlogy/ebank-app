@@ -13,9 +13,6 @@ spring:
       ddl-auto: update
     show-sql: true
 
-jwt:
-  secret: dev-local-development-only-jwt-secret-key-replace-me-in-production
-
 logging:
   level:
     root: INFO

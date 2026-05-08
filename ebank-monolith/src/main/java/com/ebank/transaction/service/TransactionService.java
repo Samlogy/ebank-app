@@ -10,6 +10,7 @@ import com.ebank.transaction.entity.Transaction.TransactionStatus;
 import com.ebank.transaction.entity.Transaction.TransactionType;
 import com.ebank.transaction.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TransactionService {
     
     private final TransactionRepository transactionRepository;
@@ -33,9 +35,14 @@ public class TransactionService {
             .orElseThrow(() -> new ResourceNotFoundException("Receiver account not found"));
         
         if (fromAccount.getBalance().compareTo(request.getAmount()) < 0) {
+            log.warn("Transfer rejected: fromAccount={} balance={} requested={} reason=insufficient_funds",
+                    fromAccountId, fromAccount.getBalance(), request.getAmount());
             throw new IllegalStateException("Insufficient balance");
         }
-        
+
+        log.info("Transfer initiated: fromAccount={} toAccount={} amount={}",
+                fromAccountId, request.getToAccountId(), request.getAmount());
+
         fromAccount.setBalance(fromAccount.getBalance().subtract(request.getAmount()));
         toAccount.setBalance(toAccount.getBalance().add(request.getAmount()));
         
@@ -53,6 +60,9 @@ public class TransactionService {
             .build();
         
         Transaction savedTransaction = transactionRepository.save(transaction);
+        log.info("Transfer completed: txnId={} ref={} fromAccount={} toAccount={} amount={}",
+                savedTransaction.getId(), savedTransaction.getReference(),
+                fromAccountId, request.getToAccountId(), request.getAmount());
         return mapToResponse(savedTransaction);
     }
     

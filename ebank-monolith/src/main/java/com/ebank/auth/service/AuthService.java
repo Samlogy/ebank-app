@@ -10,12 +10,14 @@ import com.ebank.common.exception.InvalidCredentialsException;
 import com.ebank.common.exception.ResourceNotFoundException;
 import com.ebank.common.security.JwtProvider;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AuthService {
     
     private final UserRepository userRepository;
@@ -36,25 +38,31 @@ public class AuthService {
             .build();
         
         User savedUser = userRepository.save(user);
-        
-        String token = jwtProvider.generateToken(savedUser.getId(), savedUser.getEmail());
-        
+        log.info("User registered: userId={} email={}", savedUser.getId(), savedUser.getEmail());
+
+        String token = jwtProvider.generateToken(savedUser.getId(), savedUser.getEmail(), savedUser.getRole());
+
         return AuthResponse.builder()
             .token(token)
             .email(savedUser.getEmail())
             .fullName(savedUser.getFullName())
             .build();
     }
-    
+
     public AuthResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail())
-            .orElseThrow(() -> new InvalidCredentialsException("Invalid email or password"));
-        
+            .orElseThrow(() -> {
+                log.warn("Login failed: email={} reason=user_not_found", request.getEmail());
+                return new InvalidCredentialsException("Invalid email or password");
+            });
+
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+            log.warn("Login failed: userId={} email={} reason=wrong_password", user.getId(), user.getEmail());
             throw new InvalidCredentialsException("Invalid email or password");
         }
-        
-        String token = jwtProvider.generateToken(user.getId(), user.getEmail());
+
+        log.info("User logged in: userId={} email={}", user.getId(), user.getEmail());
+        String token = jwtProvider.generateToken(user.getId(), user.getEmail(), user.getRole());
         
         return AuthResponse.builder()
             .token(token)

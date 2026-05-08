@@ -3,6 +3,7 @@ package com.ebank.common.exception;
 import com.ebank.common.dto.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -55,6 +56,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<?>> handleIllegalState(IllegalStateException ex) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
             .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    /**
+     * Fired when a concurrent retry reaches the DB unique constraint on idempotency_key
+     * before the in-memory pre-check can catch it. 409 tells the client the operation
+     * was already processed — semantically identical to a successful idempotent replay.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<?>> handleDataIntegrity(DataIntegrityViolationException ex) {
+        log.warn("Data integrity violation — likely duplicate idempotency key", ex);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(ApiResponse.error("Duplicate request: this operation has already been processed."));
     }
     
     @ExceptionHandler(Exception.class)

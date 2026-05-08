@@ -36,13 +36,14 @@ class AuthServiceTest {
         User savedUser = User.builder()
             .email("user@example.com")
             .fullName("John")
+            .role("USER")
             .build();
-        savedUser.setId(1L);  // Set ID after building
-        
+        savedUser.setId(1L);
+
         when(userRepository.existsByEmail(request.getEmail())).thenReturn(false);
         when(passwordEncoder.encode(request.getPassword())).thenReturn("hashed_password");
         when(userRepository.save(any(User.class))).thenReturn(savedUser);
-        when(jwtProvider.generateToken(1L, "user@example.com")).thenReturn("jwt-token");
+        when(jwtProvider.generateToken(1L, "user@example.com", "USER")).thenReturn("jwt-token");
         
         var response = authService.register(request);
         

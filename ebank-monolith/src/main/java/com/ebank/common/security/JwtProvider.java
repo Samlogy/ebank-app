@@ -1,62 +1,58 @@
 package com.ebank.common.security;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
-import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import javax.crypto.SecretKey;
+
 import java.util.Date;
 
 @Component
 @RequiredArgsConstructor
 public class JwtProvider {
-    
-    @Value("${jwt.secret}")
-    private String jwtSecret;
-    
+
+    private final JwtKeyStore keyStore;
+
     @Value("${jwt.expiration}")
     private long jwtExpiration;
-    
-    private SecretKey getSigningKey() {
-        return Keys.hmacShaKeyFor(jwtSecret.getBytes());
-    }
-    
-    public String generateToken(Long userId, String email) {
-        Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + jwtExpiration);
-        
+
+    public String generateToken(Long userId, String email, String role) {
+        Date now    = new Date();
+        Date expiry = new Date(now.getTime() + jwtExpiration);
         return Jwts.builder()
-            .setSubject(userId.toString())
-            .claim("email", email)
-            .setIssuedAt(now)
-            .setExpiration(expiryDate)
-            .signWith(getSigningKey(), SignatureAlgorithm.HS512)
-            .compact();
+                .header().add("kid", keyStore.currentKid()).and()
+                .subject(userId.toString())
+                .claim("email", email)
+                .claim("role", role)
+                .issuedAt(now)
+                .expiration(expiry)
+                .signWith(keyStore.currentPrivateKey(), Jwts.SIG.RS256)
+                .compact();
     }
-    
+
     public Long getUserIdFromToken(String token) {
-        return Long.parseLong(
-            Jwts.parserBuilder()
-                .setSigningKey(getSigningKey())
-                .build()
-                .parseClaimsJws(token)
-                .getBody()
-                .getSubject()
-        );
+        return Long.parseLong(parse(token).getSubject());
     }
-    
+
+    public String getRoleFromToken(String token) {
+        return parse(token).get("role", String.class);
+    }
+
     public boolean validateToken(String token) {
         try {
-            Jwts.parserBuilder()
-                .setSigningKey(getSigningKey())
-                .build()
-                .parseClaimsJws(token);
+            parse(token);
             return true;
         } catch (Exception e) {
             return false;
         }
     }
-}
 
+    private Claims parse(String token) {
+        return Jwts.parser()
+                .keyLocator(header -> keyStore.findPublicKey((String) header.get("kid")))
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+}
