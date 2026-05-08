@@ -1,0 +1,10 @@
+.idea/*
+.vscode/*
+.claude/*
+
+# Environment — ne jamais committer
+.env
+
+**/target
+**/node_modules
+**/dist
