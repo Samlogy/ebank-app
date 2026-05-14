@@ -182,28 +182,60 @@ vault/
 └── seeds/
     ├── E1.json                    # prod config template  (fill CHANGE_ME values)
     └── E2.json                    # dev/testing template  (fill CHANGE_ME values)
+
+helm/                             # Helm chart — standard deployment path for K8s
+├── Chart.yaml
+├── values.yaml                   # defaults
+├── values-dev.yaml               # E2 overrides  (1 replica, relaxed resources)
+├── values-prod.yaml              # E1 overrides  (3 replicas, TLS, hard anti-affinity)
+└── templates/
+    ├── _helpers.tpl
+    ├── deployment.yaml           # Vault AppRole env vars, read-only FS, seccomp
+    ├── service.yaml              # ClusterIP
+    ├── ingress.yaml
+    ├── hpa.yaml                  # CPU + memory autoscaling
+    ├── pdb.yaml                  # PodDisruptionBudget
+    └── networkpolicy.yaml        # deny-all + Vault/PostgreSQL/DNS egress
+
+jenkins/k8s/                      # Raw kubectl manifests (emergency / reference only)
 ```
 
 ---
 
-### Deploying to dev (E2) or prod (E1)
+### Deploying to dev (E2) or prod (E1) — Kubernetes via Helm
+
+The standard deployment path is the Helm chart. The Jenkins pipeline runs these steps automatically on every push; the commands below show what it does.
 
 ```bash
 # 1. Build and push the image
-docker build -t your-registry/ebank-monolith:1.0.0 .
+docker build -t your-registry/ebank-monolith:1.0.0 ebank-monolith/
 docker push your-registry/ebank-monolith:1.0.0
 
-# 2. Seed Vault (first time per environment — update with vault kv put thereafter)
-VAULT_ADDR=https://vault.example.com VAULT_TOKEN=<admin-token> \
-  vault kv put secret/e-bank/monolith/E2/config @vault/seeds/E2.json   # dev
-  vault kv put secret/e-bank/monolith/E1/config @vault/seeds/E1.json   # prod
+# 2. Seed Vault (once per environment — update later with vault kv patch)
+VAULT_ADDR=https://vault.example.com VAULT_TOKEN=<admin-token>
+vault kv put secret/e-bank/monolith/E2/config @vault/seeds/E2.json   # dev
+vault kv put secret/e-bank/monolith/E1/config @vault/seeds/E1.json   # prod
 
-# 3. Deploy (no .env file with secrets — everything comes from Vault)
-SPRING_PROFILES_ACTIVE=dev  VAULT_HOST=vault.example.com \
-  VAULT_ROLE_ID=<role-id> VAULT_SECRET_ID=<secret-id> VAULT_ENV_ID=E2 \
-  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d   # dev
+# 3. Get AppRole credentials from Vault
+VAULT_ROLE_ID=$(vault read -field=role_id auth/approle/role/ebank-monolith/role-id)
+VAULT_SECRET_ID=$(vault write -field=secret_id -f auth/approle/role/ebank-monolith/secret-id)
 
-SPRING_PROFILES_ACTIVE=prod VAULT_HOST=vault.prod.example.com \
-  VAULT_ROLE_ID=<role-id> VAULT_SECRET_ID=<secret-id> VAULT_ENV_ID=E1 \
-  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d   # prod
+# 4. Create the K8s Secret (the ONLY secret the cluster stores)
+kubectl create secret generic ebank-vault-approle \
+  --from-literal=VAULT_ROLE_ID=${VAULT_ROLE_ID} \
+  --from-literal=VAULT_SECRET_ID=${VAULT_SECRET_ID} \
+  --namespace ebank --dry-run=client -o yaml | kubectl apply -f -
+
+# 5. Deploy with Helm (--atomic auto-rolls back if pods don't become Ready)
+helm upgrade --install ebank-monolith ebank-monolith/helm \
+  --namespace ebank --create-namespace \
+  -f ebank-monolith/helm/values-dev.yaml \    # or values-prod.yaml
+  --set image.repository=your-registry/ebank-monolith \
+  --set image.tag=1.0.0 \
+  --atomic --timeout 5m --wait
+
+# Rollback to previous release if needed
+helm rollback ebank-monolith --namespace ebank --wait
 ```
+
+> See [VAULT_CONFIG.md § 11](VAULT_CONFIG.md#11-kubernetes-deployment-helm) for the full Helm chart reference, security hardening details, and the path to Vault Kubernetes auth.

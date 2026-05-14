@@ -16,9 +16,10 @@ This document explains why HashiCorp Vault was added, exactly how it works in th
 8. [Property Priority — How Spring Merges YAML and Vault](#8-property-priority--how-spring-merges-yaml-and-vault)
 9. [Local Dev Workflow](#9-local-dev-workflow)
 10. [CI/CD Pipeline Integration](#10-cicd-pipeline-integration)
-11. [Adding a New Environment](#11-adding-a-new-environment)
-12. [Technical Trade-offs](#12-technical-trade-offs)
-13. [Troubleshooting](#13-troubleshooting)
+11. [Kubernetes Deployment (Helm)](#11-kubernetes-deployment-helm)
+12. [Adding a New Environment](#12-adding-a-new-environment)
+13. [Technical Trade-offs](#13-technical-trade-offs)
+14. [Troubleshooting](#14-troubleshooting)
 
 ---
 
@@ -454,81 +455,210 @@ docker compose restart app
 
 ## 10. CI/CD Pipeline Integration
 
-The Jenkins pipeline (see `jenkins/Jenkinsfile`) needs to supply Vault credentials so the deployed app can read its config at runtime. Here is the flow for each environment.
+The Jenkins pipeline (`jenkins/Jenkinsfile`) deploys via Helm. Vault credentials are injected into a Kubernetes Secret before every release — the cluster never stores any other application secret.
 
-### E2 (testing) deployment
+### Flow for every deployment
 
 ```
-Pipeline stage: Deploy to E2
-  1. Pipeline reads VAULT_ROLE_ID and VAULT_SECRET_ID from Jenkins credentials store.
-  2. These are passed as container environment variables — never written to disk.
-  3. App container starts with:
-       SPRING_PROFILES_ACTIVE=prod
-       VAULT_HOST=vault.test.example.com
-       VAULT_ENV_ID=E2
-       VAULT_ROLE_ID=<from Jenkins>
-       VAULT_SECRET_ID=<from Jenkins>
-  4. Spring Boot activates the prod profile → application-prod.yaml configures AppRole auth.
-  5. Spring Cloud Vault authenticates, gets a 1h token, reads:
-       secret/e-bank/monolith/E2/config
-  6. App starts with test-environment config.
+Pipeline: Push Image → Deploy Kubernetes
+  1. Jenkins reads VAULT_ROLE_ID + VAULT_SECRET_ID from its credentials store.
+  2. kubectl creates / updates the K8s Secret ebank-vault-approle in the
+     target namespace. This is the ONLY secret the cluster holds.
+  3. helm upgrade --install selects values-dev.yaml (non-main branches)
+     or values-prod.yaml (main branch) and deploys / upgrades the release.
+     --atomic: if pods do not become Ready within 5 min, Helm auto-rolls back.
+  4. Pod starts; Spring Boot activates the chosen profile:
+       SPRING_PROFILES_ACTIVE = dev | prod
+       VAULT_HOST              = from values file
+       VAULT_ENV_ID            = E2 | E1
+       VAULT_ROLE_ID           = from K8s Secret ebank-vault-approle
+       VAULT_SECRET_ID         = from K8s Secret ebank-vault-approle
+  5. Spring Cloud Vault authenticates with AppRole, gets a 1h token, reads
+       secret/e-bank/monolith/{E2 or E1}/config
+  6. All runtime config is now in the Spring Environment. App starts.
+  7. Readiness probe passes → pod joins the Service endpoints → traffic flows.
 ```
 
-### E1 (production) deployment
+### Jenkins credentials required
 
-Identical to E2, except `VAULT_ENV_ID=E1` and the Vault address points to the production cluster.
-
-### Jenkins credentials setup
-
-In Jenkins, store the following as **Secret Text** credentials:
-
-| Credential ID | Value |
-|---|---|
-| `VAULT_HOST_E1` | Vault hostname for prod |
-| `VAULT_HOST_E2` | Vault hostname for testing |
-| `VAULT_ROLE_ID` | AppRole role-id (same for all envs if using one role) |
-| `VAULT_SECRET_ID_E1` | AppRole secret-id for prod |
-| `VAULT_SECRET_ID_E2` | AppRole secret-id for testing |
-
-In `Jenkinsfile`:
-```groovy
-environment {
-    VAULT_ROLE_ID    = credentials('VAULT_ROLE_ID')
-    VAULT_SECRET_ID  = credentials("VAULT_SECRET_ID_${ENV_ID}")
-    VAULT_HOST       = credentials("VAULT_HOST_${ENV_ID}")
-}
-
-stage('Deploy') {
-    steps {
-        sh """
-          docker run -d \
-            -e SPRING_PROFILES_ACTIVE=prod \
-            -e VAULT_HOST=${VAULT_HOST} \
-            -e VAULT_ENV_ID=${ENV_ID} \
-            -e VAULT_ROLE_ID=${VAULT_ROLE_ID} \
-            -e VAULT_SECRET_ID=${VAULT_SECRET_ID} \
-            ${APP_IMAGE}
-        """
-    }
-}
-```
+| Credential ID | Kind | Value |
+|---|---|---|
+| `dockerhub-credentials` | Username+Password | Docker Hub login |
+| `kubeconfig` | Secret file | `~/.kube/config` for the target cluster |
+| `vault-role-id` | Secret text | Vault AppRole `role_id` |
+| `vault-secret-id` | Secret text | Vault AppRole `secret_id` (rotate each deploy) |
+| `sonarqube-token` | Secret text | SonarQube analysis token |
+| `telegram-bot-token` | Secret text | Telegram bot token |
+| `telegram-chat-id` | Secret text | Telegram target chat ID |
 
 ### Secret-id rotation
 
-`secret-id` tokens should be rotated regularly. The recommended pipeline pattern:
+The `secret-id` is rotated on every pipeline run by generating a fresh one in Vault before the deploy step:
 
-1. Before each deployment, generate a new `secret-id`:
-   ```bash
-   vault write -field=secret_id -f auth/approle/role/ebank-monolith/secret-id
-   ```
-2. Pass the new `secret-id` to the container.
-3. The old `secret-id` is automatically invalidated (or expires, depending on TTL).
+```bash
+# Run this inside the Jenkins Deploy stage before passing it to kubectl
+VAULT_SECRET_ID=$(vault write -field=secret_id -f \
+  auth/approle/role/ebank-monolith/secret-id)
+```
 
-This way, even if a previous deployment's `secret-id` is leaked, it is no longer valid.
+Jenkins then creates / replaces the K8s Secret:
+
+```bash
+kubectl create secret generic ebank-vault-approle \
+  --from-literal=VAULT_ROLE_ID=${VAULT_ROLE_ID} \
+  --from-literal=VAULT_SECRET_ID=${VAULT_SECRET_ID} \
+  --namespace ebank \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+If a `secret-id` is ever leaked, its blast radius is bounded: it expires after 4 hours (`token_max_ttl` on the AppRole role), and the next deploy automatically replaces it.
 
 ---
 
-## 11. Adding a New Environment
+## 11. Kubernetes Deployment (Helm)
+
+### Why Helm?
+
+Raw `kubectl apply` works for simple cases but becomes fragile as the application grows:
+
+| | Raw kubectl manifests | Helm chart (chosen) |
+|---|---|---|
+| Environment differences | `envsubst` + multiple YAML copies | Single chart, multiple values files |
+| Rollback | Manual `kubectl rollout undo` | `helm rollback <release>` (atomic on deploy) |
+| Release history | None | `helm history <release>` |
+| Templating | None (`sed`, `envsubst`) | Full Go template engine |
+| Dry-run | `kubectl apply --dry-run` | `helm upgrade --dry-run` |
+| Dependency management | Manual | `helm dependency update` |
+
+### Helm chart structure
+
+```
+ebank-monolith/helm/
+├── Chart.yaml                 # chart metadata and version
+├── .helmignore
+├── values.yaml                # defaults — override with environment files
+├── values-dev.yaml            # E2 overrides (1 replica, dev Vault host, no TLS)
+├── values-prod.yaml           # E1 overrides (3 replicas, TLS, strict anti-affinity)
+└── templates/
+    ├── _helpers.tpl            # shared label and name helpers
+    ├── NOTES.txt               # post-install summary printed by Helm
+    ├── serviceaccount.yaml     # dedicated SA, no auto-mount of token
+    ├── deployment.yaml         # Vault AppRole env vars, all security hardening
+    ├── service.yaml            # ClusterIP (Ingress handles external traffic)
+    ├── ingress.yaml            # optional, configurable TLS
+    ├── hpa.yaml                # CPU + memory autoscaling with stabilisation windows
+    ├── pdb.yaml                # PodDisruptionBudget — survives node drains
+    └── networkpolicy.yaml      # deny-all + allow Vault, PostgreSQL, DNS, ingress
+```
+
+### What the chart supplies vs what Vault supplies
+
+| Config item | Source |
+|---|---|
+| `SPRING_PROFILES_ACTIVE` | Helm values (`spring.profile`) |
+| `VAULT_HOST`, `VAULT_PORT`, `VAULT_SCHEME` | Helm values (`vault.host/port/scheme`) |
+| `VAULT_ENV_ID` | Helm values (`vault.envId`) |
+| `VAULT_ROLE_ID` | K8s Secret `ebank-vault-approle` |
+| `VAULT_SECRET_ID` | K8s Secret `ebank-vault-approle` |
+| `spring.datasource.*` | Vault KV |
+| `jwt.expiration` | Vault KV |
+| `admin.*` | Vault KV |
+| `rate-limiting.*` | Vault KV |
+| `logging.level.*` | Vault KV |
+| `management.endpoints.*` | Vault KV |
+
+### First-time setup
+
+```bash
+# 1. Seed Vault (once per environment — update later with vault kv patch)
+VAULT_ADDR=https://vault.example.com VAULT_TOKEN=<admin-token> \
+  vault kv put secret/e-bank/monolith/E2/config @vault/seeds/E2.json   # dev
+  vault kv put secret/e-bank/monolith/E1/config @vault/seeds/E1.json   # prod
+
+# 2. Get the AppRole credentials (created by vault/init.sh)
+VAULT_ROLE_ID=$(vault read -field=role_id \
+  auth/approle/role/ebank-monolith/role-id)
+VAULT_SECRET_ID=$(vault write -field=secret_id -f \
+  auth/approle/role/ebank-monolith/secret-id)
+
+# 3. Create the K8s Secret in the target namespace
+kubectl create namespace ebank
+kubectl create secret generic ebank-vault-approle \
+  --from-literal=VAULT_ROLE_ID=${VAULT_ROLE_ID} \
+  --from-literal=VAULT_SECRET_ID=${VAULT_SECRET_ID} \
+  --namespace ebank
+
+# 4. Deploy with Helm
+helm upgrade --install ebank-monolith ebank-monolith/helm \
+  --namespace ebank \
+  --create-namespace \
+  -f ebank-monolith/helm/values-dev.yaml \
+  --set image.repository=yourdockerhub/ebank-monolith \
+  --set image.tag=main-a3f9c12-42 \
+  --atomic \
+  --timeout 5m \
+  --wait
+```
+
+### Rollback
+
+```bash
+# Helm keeps a history of all releases
+helm history ebank-monolith -n ebank
+
+# Roll back to the previous revision
+helm rollback ebank-monolith -n ebank --wait
+
+# Roll back to a specific revision
+helm rollback ebank-monolith 3 -n ebank --wait
+```
+
+### Security hardening in the chart
+
+The chart enforces production-grade security by default:
+
+| Feature | Setting |
+|---|---|
+| Non-root user | `runAsUser: 1000`, `runAsNonRoot: true` |
+| Read-only filesystem | `readOnlyRootFilesystem: true` (writable `/tmp` via `emptyDir`) |
+| Capability drop | `capabilities.drop: [ALL]` |
+| Seccomp | `seccompProfile.type: RuntimeDefault` |
+| No SA token mount | `automountServiceAccountToken: false` |
+| Graceful shutdown | `terminationGracePeriodSeconds: 60` + `preStop` sleep |
+| Pod anti-affinity | Soft in dev, hard in prod (pods on different nodes) |
+| NetworkPolicy | Ingress from controller only; egress to DNS, Vault, PostgreSQL only |
+| PodDisruptionBudget | `minAvailable: 1` (dev off), `minAvailable: 2` (prod) |
+
+### Adding Vault Kubernetes auth (future evolution)
+
+The current setup passes AppRole credentials via a K8s Secret. A more cloud-native approach is **Vault Kubernetes auth**: Vault validates the pod's service account token directly against the K8s API, so no long-lived credentials need to be stored at all.
+
+To enable it (no application code changes needed):
+
+```bash
+# On Vault:
+vault auth enable kubernetes
+vault write auth/kubernetes/config \
+  kubernetes_host=https://${K8S_API_HOST}:6443
+
+vault write auth/kubernetes/role/ebank-monolith \
+  bound_service_account_names=ebank-monolith \
+  bound_service_account_namespaces=ebank \
+  policies=ebank-monolith \
+  ttl=1h
+
+# In the Helm chart: switch authentication in values.yaml
+vault:
+  authentication: KUBERNETES   # instead of APPROLE
+  kubernetes:
+    role: ebank-monolith
+```
+
+The `ebank-monolith` Vault policy (`vault/policy/ebank-monolith.hcl`) already grants the right permissions — no policy changes needed.
+
+---
+
+## 12. Adding a New Environment
 
 Example: adding `E3` as a UAT environment.
 
@@ -567,7 +697,7 @@ No code changes, no YAML changes, no image rebuild.
 
 ---
 
-## 12. Technical Trade-offs
+## 13. Technical Trade-offs
 
 ### Trade-off 1: Spring Cloud Vault vs Vault Agent Sidecar
 
@@ -630,7 +760,7 @@ Alternative approach: map `prod` Spring profile directly to `E1` Vault path (no 
 
 ---
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 ### App fails to start: `Could not resolve placeholder 'VAULT_HOST'`
 
