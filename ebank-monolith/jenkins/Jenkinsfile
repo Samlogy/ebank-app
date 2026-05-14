@@ -1,0 +1,657 @@
+// ═══════════════════════════════════════════════════════════════════════════
+//  ebank-monolith — Jenkins Declarative Pipeline
+//  Auteur : Mike
+//
+//  Flux complet :
+//    Checkout
+//    ── CI ──────────────────────────────────────────────────────────────────
+//      Validation Conformité  →  Build  →  Tests (unit + intégration)
+//      → [//] Analyse Dépendances (OWASP) ‖ SBOM (CycloneDX)
+//      → Qualimétrie (SonarQube)  →  Quality Gate
+//      → Docker Build
+//      → [//] CVE (Trivy) ‖ Dockerfile lint (Hadolint) ‖ IaC (Checkov)
+//      → Push Image
+//    ── CD ──────────────────────────────────────────────────────────────────
+//      Deploy K8s  →  Smoke Test
+//      → [//] DAST (OWASP ZAP) ‖ Tests E2E (Newman)
+//      → Accessibilité (Pa11y / WCAG / RGAA)
+//      → Green IT (EcoIndex / kubectl top)
+//
+//  [//] = étapes exécutées EN PARALLÈLE
+// ═══════════════════════════════════════════════════════════════════════════
+
+pipeline {
+    agent any
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Variables d'environnement globales
+    // ──────────────────────────────────────────────────────────────────────
+    environment {
+        // ── Image Docker ──────────────────────────────────────────────────
+        DOCKER_HUB_USER   = "yourdockerhub"                       // ← à changer
+        APP_NAME          = "ebank-monolith"
+        DOCKER_IMAGE      = "${DOCKER_HUB_USER}/${APP_NAME}"
+        // Tag unique : branch-sha7-buildNum (ex: main-a3f9c12-42)
+        IMAGE_TAG         = "${env.BRANCH_NAME}-${env.GIT_COMMIT.take(7)}-${env.BUILD_NUMBER}"
+
+        // ── Kubernetes ────────────────────────────────────────────────────
+        K8S_NAMESPACE     = "ebank"
+
+        // ── SonarQube ─────────────────────────────────────────────────────
+        SONAR_HOST_URL    = "http://localhost:9000"               // ← URL de votre SonarQube
+        SONAR_PROJECT_KEY = "ebank-monolith"
+        SONAR_CRED_ID     = "sonarqube-token"                    // Secret text dans Jenkins
+
+        // ── URL de l'app déployée (utilisée par ZAP, E2E, Pa11y, Green IT)
+        APP_BASE_URL      = "http://ebank.local"
+
+        // ── IDs des credentials Jenkins ──────────────────────────────────
+        DOCKERHUB_CRED_ID  = "dockerhub-credentials"             // Username+Password
+        KUBECONFIG_CRED_ID = "kubeconfig"                        // Secret file
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 60, unit: 'MINUTES')     // augmenté pour les analyses DAST + Green IT
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
+    triggers {
+        pollSCM('H/5 * * * *')   // fallback si webhook GitHub non configuré
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    stages {
+
+        // ── Checkout ───────────────────────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                echo "▶ Branche: ${env.BRANCH_NAME} | Commit: ${env.GIT_COMMIT.take(7)} | Build #${env.BUILD_NUMBER}"
+                checkout scm
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        //  CONTINUOUS INTEGRATION
+        // ══════════════════════════════════════════════════════════════════
+        stage('CI') {
+            stages {
+
+                // ── CI-1 : Validation Conformité ──────────────────────────
+                // Maven Enforcer  : vérifie les règles projet (version Java, Maven,
+                //                   convergence des dépendances)
+                // Checkstyle      : applique les règles de style de code
+                // → Artefact : target/checkstyle-result.xml
+                stage('Validation Conformité') {
+                    steps {
+                        sh '''
+                            cd ebank-monolith
+                            chmod +x ./mvnw
+
+                            echo "── Maven Enforcer ──"
+                            ./mvnw enforcer:enforce -B --no-transfer-progress
+
+                            echo "── Checkstyle ──"
+                            ./mvnw checkstyle:check -B --no-transfer-progress \
+                                -Dcheckstyle.config.location=jenkins/config/checkstyle.xml \
+                                -Dcheckstyle.failOnViolation=true
+                        '''
+                    }
+                    post {
+                        always {
+                            // Affiche les violations Checkstyle dans l'UI Jenkins
+                            recordIssues(
+                                tools: [checkStyle(pattern: 'ebank-monolith/target/checkstyle-result.xml')],
+                                qualityGates: [[threshold: 1, type: 'TOTAL_HIGH', unstable: true]]
+                            )
+                        }
+                    }
+                }
+
+                // ── CI-2 : Build ──────────────────────────────────────────
+                // Compilation + packaging du JAR (sans tests pour un feedback rapide).
+                // → Artefact : target/ebank-monolith-1.0.0.jar
+                stage('Build') {
+                    steps {
+                        sh '''
+                            cd ebank-monolith
+                            ./mvnw clean package -DskipTests -B --no-transfer-progress
+                        '''
+                    }
+                    post {
+                        success {
+                            archiveArtifacts artifacts: 'ebank-monolith/target/*.jar', fingerprint: true
+                        }
+                    }
+                }
+
+                // ── CI-3 : Tests Unitaires ────────────────────────────────
+                // JUnit 5 + Mockito — base de données H2 en mémoire.
+                // Aucun Postgres requis (cf. src/test/resources/application.yaml).
+                // → Artefacts : target/surefire-reports/*.xml
+                //               target/site/jacoco/jacoco.xml  (couverture)
+                stage('Tests Unitaires') {
+                    steps {
+                        sh '''
+                            cd ebank-monolith
+                            ./mvnw test -B --no-transfer-progress \
+                                -Dtest="*Test" \
+                                -DfailIfNoTests=false
+                        '''
+                    }
+                    post {
+                        always {
+                            junit(
+                                testResults: 'ebank-monolith/target/surefire-reports/*.xml',
+                                allowEmptyResults: true
+                            )
+                        }
+                    }
+                }
+
+                // ── CI-4 : Tests d'Intégration ────────────────────────────
+                // Spring Boot Test context + MockMvc (AuthControllerTest).
+                // Toujours H2 en mémoire, aucun serveur HTTP réel.
+                // → Artefacts : target/failsafe-reports/*.xml
+                stage('Tests Intégration') {
+                    steps {
+                        sh '''
+                            cd ebank-monolith
+                            ./mvnw verify -B --no-transfer-progress \
+                                -Dtest="*IT,*IntegrationTest,*ControllerTest" \
+                                -DfailIfNoTests=false
+                        '''
+                    }
+                    post {
+                        always {
+                            junit(
+                                testResults: 'ebank-monolith/target/failsafe-reports/*.xml',
+                                allowEmptyResults: true
+                            )
+                        }
+                    }
+                }
+
+                // ── CI-5 : Analyses Statiques (EN PARALLÈLE) ─────────────
+                stage('Analyses Statiques') {
+                    parallel {
+
+                        // ── CI-5a : Analyse des Dépendances (OWASP) ───────
+                        // Scanne chaque dépendance Maven contre la base NVD (CVE).
+                        // CVSS ≥ 7 (HIGH) → échec du build.
+                        // → Artefacts : target/dependency-check-report.html / .json
+                        stage('Analyse Dépendances (OWASP)') {
+                            steps {
+                                sh '''
+                                    cd ebank-monolith
+                                    ./mvnw org.owasp:dependency-check-maven:check \
+                                        -B --no-transfer-progress \
+                                        -DfailBuildOnCVSS=7 \
+                                        -DsuppressionFile=jenkins/config/dependency-suppression.xml \
+                                        -DformatsString=HTML,JSON \
+                                        -DnvdApiDelay=2000
+                                '''
+                            }
+                            post {
+                                always {
+                                    publishHTML([
+                                        allowMissing: true,
+                                        reportDir:   'ebank-monolith/target',
+                                        reportFiles: 'dependency-check-report.html',
+                                        reportName:  'OWASP Dependency Report',
+                                        keepAll:     true
+                                    ])
+                                    archiveArtifacts artifacts: 'ebank-monolith/target/dependency-check-report.json',
+                                                     allowEmptyArchive: true
+                                }
+                            }
+                        }
+
+                        // ── CI-5b : Analyse SBOM (CycloneDX) ──────────────
+                        // Génère un Software Bill of Materials complet (toutes les
+                        // dépendances, licences, hashes).
+                        // → Artefacts : target/bom.json, target/bom.xml
+                        stage('Analyse SBOM (CycloneDX)') {
+                            steps {
+                                sh '''
+                                    cd ebank-monolith
+                                    ./mvnw org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom \
+                                        -B --no-transfer-progress
+                                '''
+                            }
+                            post {
+                                always {
+                                    archiveArtifacts artifacts: 'ebank-monolith/target/bom.*',
+                                                     fingerprint: true,
+                                                     allowEmptyArchive: true
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── CI-6 : Qualimétrie — SonarQube ───────────────────────
+                // Analyse statique du code : bugs, code smells, vulnérabilités,
+                // couverture de tests, duplications.
+                // → Envoi des métriques vers le serveur SonarQube.
+                stage('Qualimétrie (SonarQube)') {
+                    steps {
+                        withSonarQubeEnv('SonarQube') {
+                            withCredentials([
+                                string(credentialsId: env.SONAR_CRED_ID, variable: 'SONAR_TOKEN')
+                            ]) {
+                                sh '''
+                                    cd ebank-monolith
+                                    ./mvnw sonar:sonar -B --no-transfer-progress \
+                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                        -Dsonar.host.url=${SONAR_HOST_URL} \
+                                        -Dsonar.token=${SONAR_TOKEN} \
+                                        -Dsonar.java.coveragePlugin=jacoco \
+                                        -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                                        -Dsonar.qualitygate.wait=false
+                                '''
+                            }
+                        }
+                    }
+                }
+
+                // ── CI-7 : Quality Gate ────────────────────────────────────
+                // Attend la réponse du Quality Gate SonarQube (OK / ERROR).
+                // Si ERROR → le pipeline s'arrête immédiatement.
+                stage('Quality Gate') {
+                    steps {
+                        timeout(time: 5, unit: 'MINUTES') {
+                            waitForQualityGate abortPipeline: true
+                        }
+                    }
+                }
+
+                // ── CI-8 : Docker Build ───────────────────────────────────
+                // Construction de l'image multi-stage (deps → builder → runtime JRE Alpine).
+                // Labels : git-commit, build-number, branch (traçabilité).
+                stage('Docker Build') {
+                    steps {
+                        sh """
+                            docker build \
+                                -t ${DOCKER_IMAGE}:${IMAGE_TAG} \
+                                -t ${DOCKER_IMAGE}:latest \
+                                --label git-commit=${env.GIT_COMMIT.take(7)} \
+                                --label build-number=${env.BUILD_NUMBER} \
+                                --label branch=${env.BRANCH_NAME} \
+                                --label pipeline=jenkins \
+                                ebank-monolith/
+                        """
+                    }
+                }
+
+                // ── CI-9 : Analyse Image IaCS (EN PARALLÈLE) ─────────────
+                // Infrastructure as Code Security : trois axes complémentaires.
+                stage('Analyse Image (IaCS)') {
+                    parallel {
+
+                        // ── CI-9a : CVE Scan — Trivy ───────────────────────
+                        // Scanne les couches de l'image Docker contre les CVE connus.
+                        // HIGH/CRITICAL → exit code 1 → build en échec.
+                        // → Artefact : target/trivy-image-report.json
+                        stage('CVE Scan (Trivy)') {
+                            steps {
+                                sh """
+                                    mkdir -p ebank-monolith/target
+                                    trivy image \
+                                        --exit-code 1 \
+                                        --severity HIGH,CRITICAL \
+                                        --no-progress \
+                                        --format json \
+                                        --output ebank-monolith/target/trivy-image-report.json \
+                                        ${DOCKER_IMAGE}:${IMAGE_TAG}
+                                """
+                            }
+                            post {
+                                always {
+                                    archiveArtifacts artifacts: 'ebank-monolith/target/trivy-image-report.json',
+                                                     allowEmptyArchive: true
+                                }
+                            }
+                        }
+
+                        // ── CI-9b : Dockerfile Lint — Hadolint ─────────────
+                        // Lint du Dockerfile selon les best practices Docker.
+                        // Détecte les anti-patterns (COPY --chown manquant, no USER, etc.).
+                        // → Artefact : target/hadolint-report.json
+                        stage('Dockerfile Lint (Hadolint)') {
+                            steps {
+                                sh '''
+                                    mkdir -p ebank-monolith/target
+                                    hadolint \
+                                        --format json \
+                                        ebank-monolith/Dockerfile \
+                                        > ebank-monolith/target/hadolint-report.json || true
+
+                                    # Échec uniquement sur les erreurs (pas les warnings)
+                                    hadolint \
+                                        --failure-threshold error \
+                                        ebank-monolith/Dockerfile
+                                '''
+                            }
+                            post {
+                                always {
+                                    archiveArtifacts artifacts: 'ebank-monolith/target/hadolint-report.json',
+                                                     allowEmptyArchive: true
+                                }
+                            }
+                        }
+
+                        // ── CI-9c : IaC Scan — Checkov ─────────────────────
+                        // Scanne les manifests Kubernetes (jenkins/k8s/) et le Dockerfile
+                        // pour détecter les mauvaises configurations de sécurité
+                        // (pas de limites CPU/mémoire, runAsRoot, hostNetwork, etc.).
+                        // --soft-fail : résultats visibles sans bloquer le build.
+                        // → Artefact : target/checkov-k8s-report.json
+                        stage('IaC Scan (Checkov)') {
+                            steps {
+                                sh '''
+                                    mkdir -p ebank-monolith/target
+
+                                    echo "── Checkov : manifests Kubernetes ──"
+                                    checkov -d ebank-monolith/jenkins/k8s \
+                                        --framework kubernetes \
+                                        --output json \
+                                        --output-file-path ebank-monolith/target/checkov-k8s-report.json \
+                                        --compact \
+                                        --soft-fail || true
+
+                                    echo "── Checkov : Dockerfile ──"
+                                    checkov -f ebank-monolith/Dockerfile \
+                                        --framework dockerfile \
+                                        --compact \
+                                        --soft-fail || true
+                                '''
+                            }
+                            post {
+                                always {
+                                    archiveArtifacts artifacts: 'ebank-monolith/target/checkov-k8s-report.json',
+                                                     allowEmptyArchive: true
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── CI-10 : Push Image ────────────────────────────────────
+                // Pousse l'image validée vers Docker Hub.
+                // ":latest" uniquement depuis la branche main.
+                stage('Push Image') {
+                    steps {
+                        withCredentials([
+                            usernamePassword(
+                                credentialsId: env.DOCKERHUB_CRED_ID,
+                                usernameVariable: 'DOCKER_USER',
+                                passwordVariable: 'DOCKER_PASS'
+                            )
+                        ]) {
+                            sh """
+                                echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+                                docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
+                            """
+                            script {
+                                if (env.BRANCH_NAME == 'main') {
+                                    sh "docker push ${DOCKER_IMAGE}:latest"
+                                }
+                            }
+                        }
+                    }
+                }
+
+            } // fin stages CI
+        } // fin stage('CI')
+
+        // ══════════════════════════════════════════════════════════════════
+        //  CONTINUOUS DEPLOYMENT
+        // ══════════════════════════════════════════════════════════════════
+        stage('CD') {
+            stages {
+
+                // ── CD-1 : Déploiement Kubernetes ─────────────────────────
+                // envsubst injecte IMAGE_FULL dans deployment.yaml puis kubectl apply.
+                // Rolling update : maxSurge=1, maxUnavailable=0 → zéro downtime.
+                stage('Deploy Kubernetes') {
+                    steps {
+                        withCredentials([
+                            file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
+                        ]) {
+                            sh """
+                                export IMAGE_FULL="${DOCKER_IMAGE}:${IMAGE_TAG}"
+
+                                kubectl apply -f ebank-monolith/jenkins/k8s/namespace.yaml
+                                kubectl apply -f ebank-monolith/jenkins/k8s/configmap.yaml -n ${K8S_NAMESPACE}
+
+                                IMAGE_FULL=\$IMAGE_FULL envsubst '\$IMAGE_FULL' \
+                                    < ebank-monolith/jenkins/k8s/deployment.yaml \
+                                    | kubectl apply -f - -n ${K8S_NAMESPACE}
+
+                                kubectl apply -f ebank-monolith/jenkins/k8s/service.yaml  -n ${K8S_NAMESPACE}
+                                kubectl apply -f ebank-monolith/jenkins/k8s/ingress.yaml  -n ${K8S_NAMESPACE}
+                                kubectl apply -f ebank-monolith/jenkins/k8s/hpa.yaml      -n ${K8S_NAMESPACE}
+
+                                kubectl rollout status deployment/${APP_NAME} \
+                                    -n ${K8S_NAMESPACE} --timeout=120s
+                            """
+                        }
+                    }
+                }
+
+                // ── CD-2 : Smoke Test ─────────────────────────────────────
+                // Vérifie que l'app répond sur /actuator/health → {"status":"UP"}
+                // dans les 60 secondes après déploiement.
+                stage('Smoke Test') {
+                    steps {
+                        withCredentials([
+                            file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
+                        ]) {
+                            sh """
+                                chmod +x ebank-monolith/jenkins/scripts/smoke-test.sh
+                                bash ebank-monolith/jenkins/scripts/smoke-test.sh \
+                                    ${APP_NAME} ${K8S_NAMESPACE}
+                            """
+                        }
+                    }
+                }
+
+                // ── CD-3 : Analyses Post-Déploiement (EN PARALLÈLE) ───────
+                stage('Analyses Post-Déploiement') {
+                    parallel {
+
+                        // ── CD-3a : DAST — OWASP ZAP ──────────────────────
+                        // Dynamic Application Security Testing sur l'app en cours
+                        // d'exécution. Mode "baseline" = scan passif (aucune attaque).
+                        // Mode "api-scan" = scan de l'API OpenAPI (Swagger).
+                        // → Artefacts : zap-reports/zap-report.html / .json
+                        stage('Analyse DAST (OWASP ZAP)') {
+                            steps {
+                                sh """
+                                    mkdir -p \$(pwd)/zap-reports
+
+                                    # Scan passif baseline sur l'API
+                                    docker run --rm \
+                                        --network host \
+                                        -v \$(pwd)/zap-reports:/zap/wrk:rw \
+                                        ghcr.io/zaproxy/zaproxy:stable \
+                                        zap-api-scan.py \
+                                        -t ${APP_BASE_URL}/v3/api-docs \
+                                        -f openapi \
+                                        -r zap-report.html \
+                                        -J zap-report.json \
+                                        -I
+                                """
+                            }
+                            post {
+                                always {
+                                    publishHTML([
+                                        allowMissing: true,
+                                        reportDir:   'zap-reports',
+                                        reportFiles: 'zap-report.html',
+                                        reportName:  'DAST — OWASP ZAP',
+                                        keepAll:     true
+                                    ])
+                                    archiveArtifacts artifacts: 'zap-reports/zap-report.json',
+                                                     allowEmptyArchive: true
+                                }
+                            }
+                        }
+
+                        // ── CD-3b : Tests E2E — Newman (Postman CLI) ───────
+                        // Exécute les scénarios fonctionnels complets sur l'API déployée :
+                        // inscription → connexion → création compte → virement → vérification.
+                        // → Artefact : target/e2e-results.xml (JUnit)
+                        stage('Tests E2E (Newman)') {
+                            steps {
+                                sh """
+                                    newman run ebank-monolith/jenkins/e2e/ebank-api.postman_collection.json \
+                                        --env-var "baseUrl=${APP_BASE_URL}" \
+                                        --reporters cli,junit \
+                                        --reporter-junit-export ebank-monolith/target/e2e-results.xml \
+                                        --reporter-junit-export-name "E2E Tests" \
+                                        --timeout-request 10000 \
+                                        --delay-request 200 \
+                                        --bail || true
+                                """
+                            }
+                            post {
+                                always {
+                                    junit(
+                                        testResults: 'ebank-monolith/target/e2e-results.xml',
+                                        allowEmptyResults: true
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── CD-4 : Tests d'Accessibilité (RGAA / WCAG) ───────────
+                // Analyse l'interface Swagger UI (seule interface web de l'API)
+                // selon les standards WCAG 2.1 niveau AA (= base du RGAA 4.1 français).
+                // → Artefacts : target/pa11y-report.html / .json
+                stage('Accessibilité (RGAA/WCAG)') {
+                    steps {
+                        sh """
+                            mkdir -p ebank-monolith/target
+
+                            # Rapport HTML (WCAG 2.1 AA)
+                            pa11y "${APP_BASE_URL}/swagger-ui/index.html" \
+                                --standard WCAG2AA \
+                                --reporter html \
+                                --timeout 30000 \
+                                > ebank-monolith/target/pa11y-report.html || true
+
+                            # Rapport JSON pour intégration CI
+                            pa11y "${APP_BASE_URL}/swagger-ui/index.html" \
+                                --standard WCAG2AA \
+                                --reporter json \
+                                --timeout 30000 \
+                                > ebank-monolith/target/pa11y-report.json || true
+
+                            # Afficher le résumé dans les logs
+                            pa11y "${APP_BASE_URL}/swagger-ui/index.html" \
+                                --standard WCAG2AA \
+                                --reporter cli \
+                                --threshold 5 \
+                                --timeout 30000 || true
+                        """
+                    }
+                    post {
+                        always {
+                            publishHTML([
+                                allowMissing: true,
+                                reportDir:   'ebank-monolith/target',
+                                reportFiles: 'pa11y-report.html',
+                                reportName:  'Accessibilité — RGAA/WCAG 2.1 AA',
+                                keepAll:     true
+                            ])
+                            archiveArtifacts artifacts: 'ebank-monolith/target/pa11y-report.json',
+                                             allowEmptyArchive: true
+                        }
+                    }
+                }
+
+                // ── CD-5 : Analyse Green IT ────────────────────────────────
+                // Mesure l'impact environnemental de l'application déployée :
+                //   EcoIndex : note A→G sur la Swagger UI (DOM, requêtes, taille)
+                //   kubectl top : consommation CPU/mémoire des pods en production
+                // → Artefacts : target/ecoindex-report.json, target/k8s-resource-usage.txt
+                stage('Analyse Green IT') {
+                    steps {
+                        withCredentials([
+                            file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
+                        ]) {
+                            sh """
+                                mkdir -p ebank-monolith/target
+
+                                echo "── EcoIndex CLI ──"
+                                npx --yes ecoindex-cli analyze \
+                                    --url "${APP_BASE_URL}/swagger-ui/index.html" \
+                                    --format json \
+                                    > ebank-monolith/target/ecoindex-report.json || true
+
+                                echo "── Ressources K8s (kubectl top) ──"
+                                kubectl top pods -n ${K8S_NAMESPACE} \
+                                    --sort-by=cpu \
+                                    > ebank-monolith/target/k8s-resource-usage.txt || true
+
+                                kubectl top nodes \
+                                    >> ebank-monolith/target/k8s-resource-usage.txt || true
+
+                                echo "── Résumé Green IT ──"
+                                cat ebank-monolith/target/ecoindex-report.json || true
+                                cat ebank-monolith/target/k8s-resource-usage.txt || true
+                            """
+                        }
+                    }
+                    post {
+                        always {
+                            archiveArtifacts artifacts: '''ebank-monolith/target/ecoindex-report.json,
+                                                          ebank-monolith/target/k8s-resource-usage.txt''',
+                                             allowEmptyArchive: true
+                        }
+                    }
+                }
+
+            } // fin stages CD
+        } // fin stage('CD')
+
+    } // fin stages
+    // ══════════════════════════════════════════════════════════════════════
+
+    // ──────────────────────────────────────────────────────────────────────
+    // Actions post-pipeline
+    // ──────────────────────────────────────────────────────────────────────
+    post {
+        always {
+            sh "docker rmi ${DOCKER_IMAGE}:${IMAGE_TAG} || true"
+            cleanWs()
+        }
+
+        success {
+            echo "✅ Pipeline réussi — Image: ${DOCKER_IMAGE}:${IMAGE_TAG}"
+            // Slack (décommenter après configuration du plugin) :
+            // slackSend channel: '#deployments', color: 'good',
+            //           message: "✅ DEPLOYED: ${APP_NAME} ${IMAGE_TAG} → ${K8S_NAMESPACE}"
+        }
+
+        failure {
+            echo "❌ Pipeline en échec — déclenchement du rollback..."
+            withCredentials([
+                file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
+            ]) {
+                sh """
+                    chmod +x ebank-monolith/jenkins/scripts/rollback.sh
+                    bash ebank-monolith/jenkins/scripts/rollback.sh \
+                        ${APP_NAME} ${K8S_NAMESPACE} || true
+                """
+            }
+            // slackSend channel: '#deployments', color: 'danger',
+            //           message: "❌ FAILED: ${APP_NAME} build #${env.BUILD_NUMBER}"
+        }
+    }
+}

@@ -1,0 +1,37 @@
+# Jenkins plugins — format: plugin-id ou plugin-id:version
+# Les commentaires DOIVENT être sur leur propre ligne (pas de commentaires inline)
+
+# Pipeline & Orchestration
+workflow-aggregator
+pipeline-stage-view
+pipeline-graph-view
+
+# Source Control
+git
+github
+
+# Docker
+docker-workflow
+docker-plugin
+
+# Credentials & Sécurité
+credentials-binding
+plain-credentials
+ssh-credentials
+
+# Tests & Rapports
+junit
+htmlpublisher
+warnings-ng
+jacoco
+
+# SonarQube
+sonar
+
+# Notifications
+mailer
+
+# Utilitaires
+ws-cleanup
+timestamper
+build-timeout

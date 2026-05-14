@@ -1,0 +1,228 @@
+{
+  "info": {
+    "name": "ebank-monolith — API E2E",
+    "description": "Scénarios E2E complets pour l'API ebank-monolith.\nChaque requête s'enchaîne via des variables d'environnement dynamiques (token JWT, accountId).\n\nUsage Newman :\n  newman run ebank-api.postman_collection.json --env-var 'baseUrl=http://ebank.local' --reporters cli,junit\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl",    "value": "http://ebank.local", "type": "string" },
+    { "key": "adminToken", "value": "",                   "type": "string" },
+    { "key": "userToken",  "value": "",                   "type": "string" },
+    { "key": "accountId",  "value": "",                   "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "01 — Auth",
+      "item": [
+        {
+          "name": "Register (nouvel utilisateur)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Body contient email', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data).to.have.property('email');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/register", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","register"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"e2e-user@ebank.test\",\n  \"password\": \"E2ePassword123!\",\n  \"firstName\": \"E2E\",\n  \"lastName\": \"User\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (utilisateur)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Token JWT présent', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data).to.have.property('token');",
+                  "    pm.collectionVariables.set('userToken', body.data.token);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"e2e-user@ebank.test\",\n  \"password\": \"E2ePassword123!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login invalide (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/auth/login", "host": ["{{baseUrl}}"], "path": ["api","v1","auth","login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"e2e-user@ebank.test\",\n  \"password\": \"MauvaisMotDePasse\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 — Accounts",
+      "item": [
+        {
+          "name": "Créer un compte bancaire",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('AccountId sauvegardé', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data).to.have.property('id');",
+                  "    pm.collectionVariables.set('accountId', body.data.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{userToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/v1/accounts", "host": ["{{baseUrl}}"], "path": ["api","v1","accounts"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"CHECKING\",\n  \"initialBalance\": 1000.00\n}"
+            }
+          }
+        },
+        {
+          "name": "Lister mes comptes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Liste non vide', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data).to.be.an('array').with.length.greaterThan(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{userToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/accounts", "host": ["{{baseUrl}}"], "path": ["api","v1","accounts"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 — Transactions",
+      "item": [
+        {
+          "name": "Effectuer un virement",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Transaction confirmée', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.data).to.have.property('transactionId');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{userToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/api/v1/transactions/transfer", "host": ["{{baseUrl}}"], "path": ["api","v1","transactions","transfer"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromAccountId\": \"{{accountId}}\",\n  \"toAccountId\":   \"{{accountId}}\",\n  \"amount\":        10.00,\n  \"description\":   \"Test E2E virement\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 — Santé & Infra",
+      "item": [
+        {
+          "name": "Actuator Health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('App UP', () => {",
+                  "    pm.expect(pm.response.json().status).to.equal('UP');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/actuator/health", "host": ["{{baseUrl}}"], "path": ["actuator","health"] }
+          }
+        },
+        {
+          "name": "Sans token → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401 sans token', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/v1/accounts", "host": ["{{baseUrl}}"], "path": ["api","v1","accounts"] }
+          }
+        }
+      ]
+    }
+  ]
+}

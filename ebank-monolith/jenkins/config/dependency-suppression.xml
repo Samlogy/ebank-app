@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+
+    <!--
+        Fichier de suppression pour OWASP Dependency-Check.
+
+        Usage : ajouter une entrée ici UNIQUEMENT si :
+          1. Le CVE est un faux positif confirmé (mauvaise correspondance NVD)
+          2. La vulnérabilité est mitigée par une autre mesure de sécurité
+          3. Le chemin d'exploitation n'est pas applicable à notre contexte
+
+        Format d'une suppression :
+          <suppress>
+              <notes>Raison de la suppression + référence ticket</notes>
+              <cve>CVE-XXXX-XXXXX</cve>
+              <packageUrl regex="true">^pkg:maven/groupId/artifactId@.*$</packageUrl>
+          </suppress>
+
+        IMPORTANT : chaque suppression DOIT avoir une date d'expiration (until).
+        Réviser trimestriellement.
+
+        Documentation : https://jeremylong.github.io/DependencyCheck/general/suppression.html
+    -->
+
+    <!--
+    Exemple de suppression (décommenter et adapter) :
+
+    <suppress until="2025-12-31Z">
+        <notes>
+            CVE-XXXX-XXXXX : Faux positif — affecte uniquement le module CLI de H2,
+            non utilisé en production. H2 est scope TEST uniquement.
+            Référence interne : TICKET-1234
+        </notes>
+        <cve>CVE-XXXX-XXXXX</cve>
+        <packageUrl regex="true">^pkg:maven/com\.h2database/h2@.*$</packageUrl>
+    </suppress>
+    -->
+
+</suppressions>

@@ -1,0 +1,30 @@
+# Prerequisites:
+#   minikube addons enable ingress
+#   Add to /etc/hosts:  $(minikube ip)  ebank.local
+#
+# Then access the app at: http://ebank.local
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ebank-monolith-ingress
+  namespace: ebank
+  labels:
+    app: ebank-monolith
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: ebank.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ebank-monolith-service
+                port:
+                  number: 80

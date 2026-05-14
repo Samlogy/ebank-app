@@ -8,3 +8,8 @@
 **/target
 **/node_modules
 **/dist
+
+ebank-architecture.html
+ROADMAP-NEW-JOB.md
+gitflow.md
+**/maven-wrapper.properties
