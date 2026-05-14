@@ -56,6 +56,8 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: dev
       VAULT_ENV_ID: E2
+      # VAULT_HOST resolves the ${VAULT_HOST} placeholder in application-dev.yaml.
+      VAULT_HOST: vault
       # Override the dev profile's AppRole auth with Token for this local stack.
       # The SPRING_CLOUD_VAULT_* env vars take precedence over application-dev.yaml.
       SPRING_CLOUD_VAULT_AUTHENTICATION: TOKEN
