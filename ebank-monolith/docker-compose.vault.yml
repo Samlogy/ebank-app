@@ -1,0 +1,59 @@
+# Vault overlay for local development
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.vault.yml up -d
+#
+# What it does:
+#   1. Starts Vault in dev mode (root token = "root", data is ephemeral)
+#   2. Runs vault-init to enable KV v2 and seed all local config at:
+#        secret/e-bank/monolith/local/config
+#   3. Patches the app service to use the local profile + connect to Vault
+#
+# Vault UI is available at http://localhost:8200 (token: root)
+
+services:
+
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: ebank_vault
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - ebank-network
+
+  vault-init:
+    image: hashicorp/vault:1.17
+    container_name: ebank_vault_init
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: root
+    volumes:
+      - ./vault:/vault-config:ro
+    entrypoint: ["sh", "/vault-config/init.sh"]
+    networks:
+      - ebank-network
+
+  app:
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      VAULT_HOST: vault
+      VAULT_PORT: 8200
+      VAULT_TOKEN: root
+      VAULT_ENV_ID: local
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully

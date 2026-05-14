@@ -1,41 +1,36 @@
 # Profile: prod
-# Activated by: SPRING_PROFILES_ACTIVE=prod  (set in docker-compose.yml)
-# All sensitive values must come from environment variables — no defaults here.
+# Activated by: SPRING_PROFILES_ACTIVE=prod (set in docker-compose.yml)
+#
+# All runtime config (datasource, jwt, admin, logging, etc.) is loaded from Vault at:
+#   secret/e-bank/monolith/${VAULT_ENV_ID:E1}/config
+#
+# Required environment variables:
+#   VAULT_HOST       — Vault server hostname
+#   VAULT_ROLE_ID    — AppRole role-id (semi-public, safe in env)
+#   VAULT_SECRET_ID  — AppRole secret-id (rotate regularly, inject at deploy time)
+#   VAULT_ENV_ID     — Vault path segment for this deployment (e.g. E1, E2)
+#
+# Optional:
+#   VAULT_PORT       — defaults to 8200
+#   VAULT_SCHEME     — defaults to https
 
 spring:
-  datasource:
-    url: ${SPRING_DATASOURCE_URL}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
-    hikari:
-      maximum-pool-size: ${HIKARI_MAX_POOL_SIZE:10}
-      minimum-idle: ${HIKARI_MIN_IDLE:5}
-      connection-timeout: 3000
-      idle-timeout: 300000
-      max-lifetime: 900000
-      leak-detection-threshold: 5000
-
-  jpa:
-    hibernate:
-      # Never auto-modify schema in production — fail fast if schema is wrong
-      ddl-auto: validate
-    show-sql: false
-
-jwt:
-  expiration: ${JWT_EXPIRATION:86400000}
-
-admin:
-  email: ${ADMIN_EMAIL:}
-  password: ${ADMIN_PASSWORD:}
-
-logging:
-  level:
-    root: WARN
-    com.ebank: INFO
-
-management:
-  endpoints:
-    web:
-      exposure:
-        # Expose only health in production — info may leak version/config
-        include: health
+  config:
+    import: "vault://"
+  cloud:
+    vault:
+      enabled: true
+      host: ${VAULT_HOST}
+      port: ${VAULT_PORT:8200}
+      scheme: ${VAULT_SCHEME:https}
+      authentication: APPROLE
+      app-role:
+        role-id: ${VAULT_ROLE_ID}
+        secret-id: ${VAULT_SECRET_ID}
+      kv:
+        enabled: true
+        backend: secret
+        default-context: "e-bank/monolith/${VAULT_ENV_ID:E1}/config"
+        backend-version: 2
+      connection-timeout: 5000
+      read-timeout: 15000

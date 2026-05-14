@@ -3,17 +3,19 @@ spring:
     name: ebank-monolith
 
   datasource:
+    # Fallback values used when no profile is active (e.g. bare integration tests).
+    # When the local or prod profile is active these are overridden by Vault.
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/ebank_dev}
     username: ${SPRING_DATASOURCE_USERNAME:ebank_user}
     password: ${SPRING_DATASOURCE_PASSWORD:ebank_password}
     driver-class-name: org.postgresql.Driver
     hikari:
-      maximum-pool-size: 10          # 2×vCPU + 1 is a good starting point; tune under load
-      minimum-idle: 5                # keep 5 warm so bursts don't pay connection-open cost
-      connection-timeout: 3000       # fail fast (3 s) rather than piling up waiting threads
-      idle-timeout: 300000           # release idle connections after 5 min
-      max-lifetime: 900000           # recycle connections after 15 min (less than any DB-side timeout)
-      leak-detection-threshold: 5000 # WARN if a connection is held > 5 s (catches missing close/flush)
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 3000
+      idle-timeout: 300000
+      max-lifetime: 900000
+      leak-detection-threshold: 5000
 
   jpa:
     hibernate:
@@ -26,19 +28,33 @@ spring:
           batch_size: 20
           fetch_size: 50
 
+  # Vault is disabled at the base level; each profile enables it.
+  cloud:
+    vault:
+      enabled: false
+      host: ${VAULT_HOST:localhost}
+      port: ${VAULT_PORT:8200}
+      scheme: ${VAULT_SCHEME:http}
+      connection-timeout: 5000
+      read-timeout: 15000
+      kv:
+        enabled: true
+        backend: secret
+        # VAULT_ENV_ID selects the environment path: local | E1 | E2 | …
+        default-context: "e-bank/monolith/${VAULT_ENV_ID:local}/config"
+        backend-version: 2
+
 server:
   port: ${SERVER_PORT:8080}
 
 jwt:
-  expiration: 86400000   # 24 h in ms
+  expiration: 86400000   # 24 h in ms — overridden per environment via Vault
 
-# Per-IP token bucket on POST /api/v1/auth/login
 rate-limiting:
   login:
     capacity: 10
     refill-minutes: 1
 
-# Seed an ADMIN user on first startup when both values are non-empty
 admin:
   email: ""
   password: ""
