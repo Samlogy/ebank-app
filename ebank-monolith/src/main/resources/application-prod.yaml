@@ -1,18 +1,18 @@
 # Profile: prod
-# Activated by: SPRING_PROFILES_ACTIVE=prod (set in docker-compose.yml)
+# Activated by: SPRING_PROFILES_ACTIVE=prod  (CI/CD pipeline for production deployments)
 #
-# All runtime config (datasource, jwt, admin, logging, etc.) is loaded from Vault at:
+# All config (datasource, jwt, admin, logging, etc.) is loaded from Vault at:
 #   secret/e-bank/monolith/${VAULT_ENV_ID:E1}/config
 #
 # Required environment variables:
 #   VAULT_HOST       — Vault server hostname
-#   VAULT_ROLE_ID    — AppRole role-id (semi-public, safe in env)
+#   VAULT_ROLE_ID    — AppRole role-id (semi-public, identifies the app)
 #   VAULT_SECRET_ID  — AppRole secret-id (rotate regularly, inject at deploy time)
-#   VAULT_ENV_ID     — Vault path segment for this deployment (e.g. E1, E2)
 #
 # Optional:
 #   VAULT_PORT       — defaults to 8200
 #   VAULT_SCHEME     — defaults to https
+#   VAULT_ENV_ID     — defaults to E1
 
 spring:
   config:

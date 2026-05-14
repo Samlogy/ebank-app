@@ -1,26 +1,50 @@
 # Profile: local
-# Usage: SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
-# Requires: docker compose -f docker-compose.yml -f docker-compose.vault.yml up -d
+# Usage:
+#   SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
+#   docker compose up -d postgres   ← only PostgreSQL needed, no Vault
 #
-# All runtime config (datasource, jwt, logging, etc.) is loaded from Vault at:
-#   secret/e-bank/monolith/${VAULT_ENV_ID:local}/config
-# Seed that path first with: vault/init.sh (run automatically by docker-compose.vault.yml)
+# Self-contained — no Vault dependency. All values are defined directly
+# here and are suitable for individual developer machines only.
+# Never use these credentials in any shared or deployed environment.
 
 spring:
-  config:
-    import: "vault://"
-  cloud:
-    vault:
-      enabled: true
-      host: ${VAULT_HOST:localhost}
-      port: ${VAULT_PORT:8200}
-      scheme: http
-      authentication: TOKEN
-      token: ${VAULT_TOKEN:root}
-      kv:
-        enabled: true
-        backend: secret
-        default-context: "e-bank/monolith/${VAULT_ENV_ID:local}/config"
-        backend-version: 2
-      connection-timeout: 5000
-      read-timeout: 15000
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ebank_dev
+    username: ebank_user
+    password: ebank_password
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 3000
+      idle-timeout: 300000
+      max-lifetime: 900000
+      leak-detection-threshold: 5000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+
+jwt:
+  expiration: 86400000
+
+admin:
+  email: admin@ebank.com
+  password: ChangeMe123!
+
+rate-limiting:
+  login:
+    capacity: 10
+    refill-minutes: 1
+
+logging:
+  level:
+    root: INFO
+    com.ebank: DEBUG
+    org.hibernate.SQL: DEBUG
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
