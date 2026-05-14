@@ -56,32 +56,49 @@ sequenceDiagram
 
 ## Environments
 
-All runtime config (datasource credentials, JWT expiration, logging levels, etc.) is sourced from **HashiCorp Vault KV v2**. Each environment has its own path inside Vault:
+Three Spring profiles cover all use cases:
 
-| | **local** | **E2 — testing** | **E1 — prod** |
+| | **local** | **dev (E2)** | **prod (E1)** |
 |---|---|---|---|
-| Spring profile | `local` | `prod` | `prod` |
-| Vault path | `secret/e-bank/monolith/local/config` | `secret/e-bank/monolith/E2/config` | `secret/e-bank/monolith/E1/config` |
-| Vault auth | Token (`root`) | AppRole | AppRole |
-| Database | PostgreSQL in Docker | PostgreSQL shared test DB | PostgreSQL managed prod DB |
+| Spring profile | `local` | `dev` | `prod` |
+| Config source | `application-local.yaml` | Vault `secret/e-bank/monolith/E2/config` | Vault `secret/e-bank/monolith/E1/config` |
+| Vault auth | **none** | AppRole | AppRole |
+| Database | PostgreSQL `localhost:5432` | Shared testing DB | Managed prod DB |
 | DDL | `update` | `update` | `validate` |
 | SQL logs | on | off | off |
-| Rate-limit capacity | 10/min | 20/min | 10/min |
-| Actuator endpoints | health, info | health, info | health only |
-| How to run | `docker compose ... up -d` | pipeline + `VAULT_ENV_ID=E2` | pipeline + `VAULT_ENV_ID=E1` |
+| Rate-limit | 10/min | 20/min | 10/min |
+| Actuator | health, info | health, info | health only |
+| How to run | `docker compose up -d postgres` | pipeline + `VAULT_ENV_ID=E2` | pipeline + `VAULT_ENV_ID=E1` |
 
-Tests (`./mvnw test`) use neither a profile nor Vault — they run against an H2 in-memory database configured directly in `src/test/resources/application.yaml`.
+`local` is self-contained — no Vault, no coordination overhead. `dev` and `prod` load **all** config from Vault at startup.
 
-> See [VAULT_CONFIG.md](VAULT_CONFIG.md) for a full explanation of the Vault integration, auth strategies, CI/CD wiring, and how to add new environments.
+Tests (`./mvnw test`) use an H2 in-memory database and activate no profile — no Vault contact at all.
+
+> See [VAULT_CONFIG.md](VAULT_CONFIG.md) for the full technical reference: why Vault, how it wires in, auth strategies, CI/CD integration, and trade-offs.
 
 ---
 
 ## Quick Start
 
-### Docker with Vault (recommended)
+### Local profile — no Vault needed
 
 ```bash
-# Start PostgreSQL + Vault (dev mode) + the app (local profile)
+docker compose up -d postgres   # start only PostgreSQL
+
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+# or in Docker:
+# docker compose up -d --build   (uses SPRING_PROFILES_ACTIVE=local in docker-compose.yml)
+
+curl http://localhost:8081/actuator/health
+```
+
+All config comes from `application-local.yaml`. No Vault, no extra env vars.
+
+### Dev profile with Vault (local smoke-test)
+
+Use the vault overlay to run the `dev` Spring profile against a local Vault dev server:
+
+```bash
 docker compose -f docker-compose.yml -f docker-compose.vault.yml up -d --build
 
 docker compose ps             # wait for (healthy) on postgres and app
@@ -89,24 +106,13 @@ curl http://localhost:8081/actuator/health
 # Vault UI: http://localhost:8200  (token: root)
 ```
 
-Vault is seeded automatically on first start. All config (datasource URL, credentials, JWT settings, etc.) is read from `secret/e-bank/monolith/local/config`.
+Vault is seeded automatically with E2-compatible local values. The app uses the `dev` profile and reads all config from `secret/e-bank/monolith/E2/config`.
 
-### Docker without Vault (legacy / quick demo)
-
-```bash
-cp .env.example .env          # copy env template
-docker compose up -d --build  # build image + start postgres + app
-curl http://localhost:8081/actuator/health
-```
-
-Config is supplied via environment variables from `.env`. No secrets management.
-
-### Local (app on JVM, Vault + DB in Docker)
+### Tests
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.vault.yml up -d postgres vault vault-init
-./mvnw spring-boot:run -Dspring-boot.run.profiles=local \
-  -Dspring-boot.run.jvmArguments="-DVAULT_HOST=localhost -DVAULT_TOKEN=root -DVAULT_ENV_ID=local"
+./mvnw test                                # H2 in-memory, no profile, no Vault
+./mvnw test -Dtest=AuthControllerTest      # single class
 ```
 
 ### Tests
@@ -158,9 +164,10 @@ src/main/
 │   ├── account/         # create · list · get
 │   └── transaction/     # transfer · history
 └── resources/
-    ├── application.yaml          # base: static framework constants, Vault disabled
-    ├── application-local.yaml    # Vault token auth (local dev mode)
-    └── application-prod.yaml     # Vault AppRole auth (E1 prod, E2 testing)
+    ├── application.yaml          # base: static constants, Vault disabled
+    ├── application-local.yaml    # local dev: pure YAML, no Vault
+    ├── application-dev.yaml      # dev/testing: Vault AppRole → E2
+    └── application-prod.yaml     # production:  Vault AppRole → E1
 
 src/test/
 ├── java/com/ebank/
@@ -170,35 +177,33 @@ src/test/
     └── application.yaml          # H2 in-memory, no Vault needed
 
 vault/
-├── init.sh                       # seeds Vault on first stack start
-├── policy/ebank-monolith.hcl     # read-only Vault policy
+├── init.sh                       # seeds E2 on local stack start, creates AppRole
+├── policy/ebank-monolith.hcl     # read-only policy for secret/e-bank/monolith/+/config
 └── seeds/
-    ├── local.json                 # local dev config (auto-seeded)
-    ├── E1.json                    # prod config template (CHANGE_ME values)
-    └── E2.json                    # testing config template
+    ├── E1.json                    # prod config template  (fill CHANGE_ME values)
+    └── E2.json                    # dev/testing template  (fill CHANGE_ME values)
 ```
 
 ---
 
-### Production deployment (E1)
+### Deploying to dev (E2) or prod (E1)
 
 ```bash
-# Build and push image
+# 1. Build and push the image
 docker build -t your-registry/ebank-monolith:1.0.0 .
 docker push your-registry/ebank-monolith:1.0.0
 
-# Seed E1 config in the production Vault cluster (first time only)
-VAULT_ADDR=https://vault.prod.example.com \
-VAULT_TOKEN=<root-or-admin-token> \
-  vault kv put secret/e-bank/monolith/E1/config @vault/seeds/E1.json
+# 2. Seed Vault (first time per environment — update with vault kv put thereafter)
+VAULT_ADDR=https://vault.example.com VAULT_TOKEN=<admin-token> \
+  vault kv put secret/e-bank/monolith/E2/config @vault/seeds/E2.json   # dev
+  vault kv put secret/e-bank/monolith/E1/config @vault/seeds/E1.json   # prod
 
-# Deploy — supply Vault connection + AppRole credentials; no .env with secrets
-APP_IMAGE=your-registry/ebank-monolith:1.0.0 \
-VAULT_HOST=vault.prod.example.com \
-VAULT_ROLE_ID=<role-id> \
-VAULT_SECRET_ID=<secret-id> \
-VAULT_ENV_ID=E1 \
-  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# 3. Deploy (no .env file with secrets — everything comes from Vault)
+SPRING_PROFILES_ACTIVE=dev  VAULT_HOST=vault.example.com \
+  VAULT_ROLE_ID=<role-id> VAULT_SECRET_ID=<secret-id> VAULT_ENV_ID=E2 \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d   # dev
+
+SPRING_PROFILES_ACTIVE=prod VAULT_HOST=vault.prod.example.com \
+  VAULT_ROLE_ID=<role-id> VAULT_SECRET_ID=<secret-id> VAULT_ENV_ID=E1 \
+  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d   # prod
 ```
-
-> The app pulls **all** config from Vault at startup. No secrets travel in the `.env` file.
