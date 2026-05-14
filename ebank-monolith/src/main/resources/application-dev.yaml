@@ -25,8 +25,8 @@ spring:
       scheme: ${VAULT_SCHEME:https}
       authentication: APPROLE
       app-role:
-        role-id: ${VAULT_ROLE_ID}
-        secret-id: ${VAULT_SECRET_ID}
+        role-id: ${VAULT_ROLE_ID:}
+        secret-id: ${VAULT_SECRET_ID:}
       kv:
         enabled: true
         backend: secret
