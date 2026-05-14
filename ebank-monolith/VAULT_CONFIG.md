@@ -16,10 +16,9 @@ This document explains why HashiCorp Vault was added, exactly how it works in th
 8. [Property Priority — How Spring Merges YAML and Vault](#8-property-priority--how-spring-merges-yaml-and-vault)
 9. [Local Dev Workflow](#9-local-dev-workflow)
 10. [CI/CD Pipeline Integration](#10-cicd-pipeline-integration)
-11. [Kubernetes Deployment (Helm)](#11-kubernetes-deployment-helm)
-12. [Adding a New Environment](#12-adding-a-new-environment)
-13. [Technical Trade-offs](#13-technical-trade-offs)
-14. [Troubleshooting](#14-troubleshooting)
+11. [Adding a New Environment](#11-adding-a-new-environment)
+12. [Technical Trade-offs](#12-technical-trade-offs)
+13. [Troubleshooting](#13-troubleshooting)
 
 ---
 
@@ -65,11 +64,11 @@ docker-compose.yml
   └── env vars → app reads SPRING_DATASOURCE_URL, JWT_SECRET, etc.
 ```
 
-After (`dev` and `prod` profiles):
+After:
 
 ```
-docker-compose.yml / pipeline
-  └── env vars → Vault connection only (VAULT_HOST, VAULT_ROLE_ID, VAULT_SECRET_ID, VAULT_ENV_ID)
+docker-compose.yml
+  └── env vars → Vault connection only (VAULT_HOST, VAULT_ROLE_ID, VAULT_ENV_ID)
                     ↓
                  Vault KV
                     └── secret/e-bank/monolith/{ENV_ID}/config
@@ -77,19 +76,12 @@ docker-compose.yml / pipeline
                          app gets ALL config from Vault
 ```
 
-`local` profile stays simple — pure YAML, no Vault, no extra moving parts:
-
-```
-application-local.yaml
-  └── datasource, JWT, logging, etc. — all inline, suitable for developer machines only
-```
-
-For `dev` and `prod`, the only environment variables the container needs are:
+The only environment variables the container now needs are:
 - Where is Vault (`VAULT_HOST`, `VAULT_PORT`, `VAULT_SCHEME`)
-- How to authenticate (`VAULT_ROLE_ID` + `VAULT_SECRET_ID` — AppRole for both)
-- Which environment path to use (`VAULT_ENV_ID`: `E2` for dev, `E1` for prod)
+- How to authenticate (`VAULT_TOKEN` for dev / `VAULT_ROLE_ID` + `VAULT_SECRET_ID` for prod)
+- Which environment path to use (`VAULT_ENV_ID`)
 
-Everything else — datasource URL, credentials, JWT expiration, logging, actuator, rate limits — comes from Vault.
+Everything else — datasource, JWT expiration, logging, actuator, rate limits — comes from Vault.
 
 ---
 
@@ -203,42 +195,54 @@ The user requirement was "Vault will contain all config for each environment, no
 
 ---
 
-## 5. Environments: local, dev (E2), prod (E1)
+## 5. Environments: local, E2, E1
 
-Three Spring profiles, clear separation of concerns:
+### local — development
 
-### local — individual developer machine
+- **Purpose**: individual developer machine.
+- **Vault mode**: dev server (`hashicorp/vault:1.17` in dev mode). Data is ephemeral — lost when the container is removed. That is intentional: local Vault is always re-seeded on startup via `vault-init`.
+- **Auth**: root token (`root`). No authentication ceremony needed.
+- **Seed**: `vault/seeds/local.json` is loaded automatically by `vault-init`.
+- **Key differences**: `show-sql: true`, `ddl-auto: update`, verbose logging.
 
-- **Spring profile**: `local`
-- **Config source**: `application-local.yaml` — self-contained, no external dependencies.
-- **Vault**: **not used**. The profile does not include `spring.config.import: vault://` at all.
-- **Database**: PostgreSQL on `localhost:5432` (start with `docker compose up -d postgres`).
-- **Key behaviours**: `show-sql: true`, `ddl-auto: update`, DEBUG logging, both actuator endpoints.
-- **Trade-off**: credentials are committed to the repo (intentionally weak dev values). This is acceptable because this profile is only ever used on a developer's own machine.
+### E2 — testing / staging
 
-### dev (E2) — shared testing / staging environment
+- **Purpose**: shared environment where QA runs tests, the CI pipeline verifies releases before production, and integration tests run against real infrastructure.
+- **Vault mode**: persistent Vault server (production-grade, not dev mode).
+- **Auth**: AppRole (same as prod). The pipeline injects `VAULT_ROLE_ID` and `VAULT_SECRET_ID`.
+- **Seed**: `vault/seeds/E2.json` is the template. Replace all `CHANGE_ME_*` values before loading.
+- **Key differences from E1**: `ddl-auto: update` (schema can evolve), rate limit is looser (20/min) so automated tests don't hit limits, both health and info actuator endpoints exposed.
 
-- **Spring profile**: `dev`
-- **Config source**: Vault KV at `secret/e-bank/monolith/${VAULT_ENV_ID:E2}/config`.
-- **Vault auth**: AppRole. The CI/CD pipeline injects `VAULT_ROLE_ID` and `VAULT_SECRET_ID`.
-- **Seed**: `vault/seeds/E2.json` is the template — fill `CHANGE_ME_*` values with real test DB credentials.
-- **Key differences from E1**: `ddl-auto: update` (schema can evolve freely in testing), rate limit is looser (20/min) so automated test suites don't hit it, both health and info actuator endpoints exposed for visibility.
+### E1 — production
 
-### prod (E1) — production
-
-- **Spring profile**: `prod`
-- **Config source**: Vault KV at `secret/e-bank/monolith/${VAULT_ENV_ID:E1}/config`.
-- **Vault auth**: AppRole. Credentials are rotated at each deployment.
-- **Seed**: `vault/seeds/E1.json` is the template — load once and update with `vault kv put`.
-- **Key differences**: `ddl-auto: validate` (schema must be managed externally; wrong schema = hard failure at startup), `show-sql: false`, WARN-level root logging, only health actuator exposed.
+- **Purpose**: live environment serving real users.
+- **Vault mode**: persistent Vault cluster (HA recommended).
+- **Auth**: AppRole. Credentials are rotated regularly.
+- **Seed**: `vault/seeds/E1.json` is the template. Load once; use `vault kv put` for updates.
+- **Key differences**: `ddl-auto: validate` (schema must be managed by migrations), `show-sql: false`, WARN-level root logging, only health actuator exposed.
 
 ---
 
 ## 6. Authentication Strategies
 
-Spring Cloud Vault supports many auth methods. This project uses one in production (AppRole) and overrides to Token only when running the local docker-compose vault overlay for testing.
+Spring Cloud Vault supports many auth methods. This project uses two.
 
-### AppRole auth (dev profile / E2, prod profile / E1)
+### Token auth (local only)
+
+```yaml
+spring:
+  cloud:
+    vault:
+      authentication: TOKEN
+      token: ${VAULT_TOKEN:root}
+```
+
+The app presents the token directly to Vault. Simple, but:
+- Tokens do not expire automatically in dev mode.
+- You must protect the token just as carefully as any password.
+- **Only used in local dev**, where the Vault server is ephemeral and the token is public (`root`).
+
+### AppRole auth (E2, E1)
 
 ```yaml
 spring:
@@ -256,26 +260,13 @@ AppRole is designed for machine-to-machine authentication:
 2. Vault validates both and issues a short-lived token (TTL 1 hour, max 4 hours).
 3. Spring Cloud Vault uses this token for all subsequent reads and automatically renews it before expiry.
 
-**Why AppRole for both dev and prod?**
+**Why AppRole over a long-lived token?**
 
-Consistency: the `dev` and `prod` profiles use identical authentication mechanisms. A pipeline that deploys to E2 works the same way as one that deploys to E1 — only `VAULT_ENV_ID` and the Vault address differ. This eliminates a whole class of "works in staging, breaks in prod" auth bugs.
-
-| | Long-lived token | AppRole (chosen) |
+| | Long-lived token | AppRole |
 |---|---|---|
 | Rotation | Manual, disruptive | `secret-id` rotated independently |
 | Blast radius if leaked | Full access until manually revoked | Token expires in ≤1h |
 | CI/CD integration | Secrets must be stored somewhere | `role-id` is safe to store; `secret-id` is injected at deploy time |
-
-### Token auth (local vault overlay only)
-
-The `docker-compose.vault.yml` overlay overrides the `dev` profile's AppRole settings with Token auth via `SPRING_CLOUD_VAULT_*` environment variables:
-
-```yaml
-SPRING_CLOUD_VAULT_AUTHENTICATION: TOKEN
-SPRING_CLOUD_VAULT_TOKEN: root
-```
-
-This solves a docker-compose chicken-and-egg problem: AppRole `secret-id` values are generated by Vault at runtime and cannot be coordinated between containers without extra tooling. Token auth removes that dependency for local testing only. Real `dev` and `prod` deployments always use AppRole.
 
 ### Future: Kubernetes auth
 
@@ -379,16 +370,7 @@ Practical consequences:
 
 ## 9. Local Dev Workflow
 
-### Option A — `local` profile (simplest, no Vault)
-
-```bash
-docker compose up -d postgres
-SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
-```
-
-All config comes from `application-local.yaml`. Nothing else needed.
-
-### Option B — `dev` profile with Vault (tests the real Vault integration)
+### First start
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.vault.yml up -d --build
@@ -401,17 +383,17 @@ What happens in order:
 2. vault starts in dev mode (root token = "root"). Passes healthcheck.
 3. vault-init runs init.sh:
      - Mounts KV v2 at secret/
-     - Writes E2 config (local postgres values) → secret/e-bank/monolith/E2/config
+     - Writes local.json → secret/e-bank/monolith/local/config
+     - Writes E2.json   → secret/e-bank/monolith/E2/config
      - Writes the ebank-monolith policy
      - Enables AppRole, creates the role, prints VAULT_ROLE_ID + VAULT_SECRET_ID
    vault-init exits with code 0.
 4. app starts only after vault-init completes (condition: service_completed_successfully).
-   Spring Boot activates the 'dev' profile → application-dev.yaml is loaded.
-   SPRING_CLOUD_VAULT_AUTHENTICATION=TOKEN overrides AppRole auth for this local stack.
+   Spring Boot activates the 'local' profile.
    Spring Cloud Vault connects to vault:8200 with token "root".
-   Reads secret/e-bank/monolith/E2/config.
-   All config properties load into the Spring Environment.
-   DataSource is created (postgres:5432/ebank_dev).
+   Reads secret/e-bank/monolith/local/config.
+   All 19 config properties are loaded into the Spring Environment.
+   DataSource is created with the correct URL (postgres:5432/ebank_dev).
    App passes its healthcheck.
 ```
 
@@ -455,210 +437,81 @@ docker compose restart app
 
 ## 10. CI/CD Pipeline Integration
 
-The Jenkins pipeline (`jenkins/Jenkinsfile`) deploys via Helm. Vault credentials are injected into a Kubernetes Secret before every release — the cluster never stores any other application secret.
+The Jenkins pipeline (see `jenkins/Jenkinsfile`) needs to supply Vault credentials so the deployed app can read its config at runtime. Here is the flow for each environment.
 
-### Flow for every deployment
+### E2 (testing) deployment
 
 ```
-Pipeline: Push Image → Deploy Kubernetes
-  1. Jenkins reads VAULT_ROLE_ID + VAULT_SECRET_ID from its credentials store.
-  2. kubectl creates / updates the K8s Secret ebank-vault-approle in the
-     target namespace. This is the ONLY secret the cluster holds.
-  3. helm upgrade --install selects values-dev.yaml (non-main branches)
-     or values-prod.yaml (main branch) and deploys / upgrades the release.
-     --atomic: if pods do not become Ready within 5 min, Helm auto-rolls back.
-  4. Pod starts; Spring Boot activates the chosen profile:
-       SPRING_PROFILES_ACTIVE = dev | prod
-       VAULT_HOST              = from values file
-       VAULT_ENV_ID            = E2 | E1
-       VAULT_ROLE_ID           = from K8s Secret ebank-vault-approle
-       VAULT_SECRET_ID         = from K8s Secret ebank-vault-approle
-  5. Spring Cloud Vault authenticates with AppRole, gets a 1h token, reads
-       secret/e-bank/monolith/{E2 or E1}/config
-  6. All runtime config is now in the Spring Environment. App starts.
-  7. Readiness probe passes → pod joins the Service endpoints → traffic flows.
+Pipeline stage: Deploy to E2
+  1. Pipeline reads VAULT_ROLE_ID and VAULT_SECRET_ID from Jenkins credentials store.
+  2. These are passed as container environment variables — never written to disk.
+  3. App container starts with:
+       SPRING_PROFILES_ACTIVE=prod
+       VAULT_HOST=vault.test.example.com
+       VAULT_ENV_ID=E2
+       VAULT_ROLE_ID=<from Jenkins>
+       VAULT_SECRET_ID=<from Jenkins>
+  4. Spring Boot activates the prod profile → application-prod.yaml configures AppRole auth.
+  5. Spring Cloud Vault authenticates, gets a 1h token, reads:
+       secret/e-bank/monolith/E2/config
+  6. App starts with test-environment config.
 ```
 
-### Jenkins credentials required
+### E1 (production) deployment
 
-| Credential ID | Kind | Value |
-|---|---|---|
-| `dockerhub-credentials` | Username+Password | Docker Hub login |
-| `kubeconfig` | Secret file | `~/.kube/config` for the target cluster |
-| `vault-role-id` | Secret text | Vault AppRole `role_id` |
-| `vault-secret-id` | Secret text | Vault AppRole `secret_id` (rotate each deploy) |
-| `sonarqube-token` | Secret text | SonarQube analysis token |
-| `telegram-bot-token` | Secret text | Telegram bot token |
-| `telegram-chat-id` | Secret text | Telegram target chat ID |
+Identical to E2, except `VAULT_ENV_ID=E1` and the Vault address points to the production cluster.
+
+### Jenkins credentials setup
+
+In Jenkins, store the following as **Secret Text** credentials:
+
+| Credential ID | Value |
+|---|---|
+| `VAULT_HOST_E1` | Vault hostname for prod |
+| `VAULT_HOST_E2` | Vault hostname for testing |
+| `VAULT_ROLE_ID` | AppRole role-id (same for all envs if using one role) |
+| `VAULT_SECRET_ID_E1` | AppRole secret-id for prod |
+| `VAULT_SECRET_ID_E2` | AppRole secret-id for testing |
+
+In `Jenkinsfile`:
+```groovy
+environment {
+    VAULT_ROLE_ID    = credentials('VAULT_ROLE_ID')
+    VAULT_SECRET_ID  = credentials("VAULT_SECRET_ID_${ENV_ID}")
+    VAULT_HOST       = credentials("VAULT_HOST_${ENV_ID}")
+}
+
+stage('Deploy') {
+    steps {
+        sh """
+          docker run -d \
+            -e SPRING_PROFILES_ACTIVE=prod \
+            -e VAULT_HOST=${VAULT_HOST} \
+            -e VAULT_ENV_ID=${ENV_ID} \
+            -e VAULT_ROLE_ID=${VAULT_ROLE_ID} \
+            -e VAULT_SECRET_ID=${VAULT_SECRET_ID} \
+            ${APP_IMAGE}
+        """
+    }
+}
+```
 
 ### Secret-id rotation
 
-The `secret-id` is rotated on every pipeline run by generating a fresh one in Vault before the deploy step:
+`secret-id` tokens should be rotated regularly. The recommended pipeline pattern:
 
-```bash
-# Run this inside the Jenkins Deploy stage before passing it to kubectl
-VAULT_SECRET_ID=$(vault write -field=secret_id -f \
-  auth/approle/role/ebank-monolith/secret-id)
-```
+1. Before each deployment, generate a new `secret-id`:
+   ```bash
+   vault write -field=secret_id -f auth/approle/role/ebank-monolith/secret-id
+   ```
+2. Pass the new `secret-id` to the container.
+3. The old `secret-id` is automatically invalidated (or expires, depending on TTL).
 
-Jenkins then creates / replaces the K8s Secret:
-
-```bash
-kubectl create secret generic ebank-vault-approle \
-  --from-literal=VAULT_ROLE_ID=${VAULT_ROLE_ID} \
-  --from-literal=VAULT_SECRET_ID=${VAULT_SECRET_ID} \
-  --namespace ebank \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
-If a `secret-id` is ever leaked, its blast radius is bounded: it expires after 4 hours (`token_max_ttl` on the AppRole role), and the next deploy automatically replaces it.
+This way, even if a previous deployment's `secret-id` is leaked, it is no longer valid.
 
 ---
 
-## 11. Kubernetes Deployment (Helm)
-
-### Why Helm?
-
-Raw `kubectl apply` works for simple cases but becomes fragile as the application grows:
-
-| | Raw kubectl manifests | Helm chart (chosen) |
-|---|---|---|
-| Environment differences | `envsubst` + multiple YAML copies | Single chart, multiple values files |
-| Rollback | Manual `kubectl rollout undo` | `helm rollback <release>` (atomic on deploy) |
-| Release history | None | `helm history <release>` |
-| Templating | None (`sed`, `envsubst`) | Full Go template engine |
-| Dry-run | `kubectl apply --dry-run` | `helm upgrade --dry-run` |
-| Dependency management | Manual | `helm dependency update` |
-
-### Helm chart structure
-
-```
-ebank-monolith/helm/
-├── Chart.yaml                 # chart metadata and version
-├── .helmignore
-├── values.yaml                # defaults — override with environment files
-├── values-dev.yaml            # E2 overrides (1 replica, dev Vault host, no TLS)
-├── values-prod.yaml           # E1 overrides (3 replicas, TLS, strict anti-affinity)
-└── templates/
-    ├── _helpers.tpl            # shared label and name helpers
-    ├── NOTES.txt               # post-install summary printed by Helm
-    ├── serviceaccount.yaml     # dedicated SA, no auto-mount of token
-    ├── deployment.yaml         # Vault AppRole env vars, all security hardening
-    ├── service.yaml            # ClusterIP (Ingress handles external traffic)
-    ├── ingress.yaml            # optional, configurable TLS
-    ├── hpa.yaml                # CPU + memory autoscaling with stabilisation windows
-    ├── pdb.yaml                # PodDisruptionBudget — survives node drains
-    └── networkpolicy.yaml      # deny-all + allow Vault, PostgreSQL, DNS, ingress
-```
-
-### What the chart supplies vs what Vault supplies
-
-| Config item | Source |
-|---|---|
-| `SPRING_PROFILES_ACTIVE` | Helm values (`spring.profile`) |
-| `VAULT_HOST`, `VAULT_PORT`, `VAULT_SCHEME` | Helm values (`vault.host/port/scheme`) |
-| `VAULT_ENV_ID` | Helm values (`vault.envId`) |
-| `VAULT_ROLE_ID` | K8s Secret `ebank-vault-approle` |
-| `VAULT_SECRET_ID` | K8s Secret `ebank-vault-approle` |
-| `spring.datasource.*` | Vault KV |
-| `jwt.expiration` | Vault KV |
-| `admin.*` | Vault KV |
-| `rate-limiting.*` | Vault KV |
-| `logging.level.*` | Vault KV |
-| `management.endpoints.*` | Vault KV |
-
-### First-time setup
-
-```bash
-# 1. Seed Vault (once per environment — update later with vault kv patch)
-VAULT_ADDR=https://vault.example.com VAULT_TOKEN=<admin-token> \
-  vault kv put secret/e-bank/monolith/E2/config @vault/seeds/E2.json   # dev
-  vault kv put secret/e-bank/monolith/E1/config @vault/seeds/E1.json   # prod
-
-# 2. Get the AppRole credentials (created by vault/init.sh)
-VAULT_ROLE_ID=$(vault read -field=role_id \
-  auth/approle/role/ebank-monolith/role-id)
-VAULT_SECRET_ID=$(vault write -field=secret_id -f \
-  auth/approle/role/ebank-monolith/secret-id)
-
-# 3. Create the K8s Secret in the target namespace
-kubectl create namespace ebank
-kubectl create secret generic ebank-vault-approle \
-  --from-literal=VAULT_ROLE_ID=${VAULT_ROLE_ID} \
-  --from-literal=VAULT_SECRET_ID=${VAULT_SECRET_ID} \
-  --namespace ebank
-
-# 4. Deploy with Helm
-helm upgrade --install ebank-monolith ebank-monolith/helm \
-  --namespace ebank \
-  --create-namespace \
-  -f ebank-monolith/helm/values-dev.yaml \
-  --set image.repository=yourdockerhub/ebank-monolith \
-  --set image.tag=main-a3f9c12-42 \
-  --atomic \
-  --timeout 5m \
-  --wait
-```
-
-### Rollback
-
-```bash
-# Helm keeps a history of all releases
-helm history ebank-monolith -n ebank
-
-# Roll back to the previous revision
-helm rollback ebank-monolith -n ebank --wait
-
-# Roll back to a specific revision
-helm rollback ebank-monolith 3 -n ebank --wait
-```
-
-### Security hardening in the chart
-
-The chart enforces production-grade security by default:
-
-| Feature | Setting |
-|---|---|
-| Non-root user | `runAsUser: 1000`, `runAsNonRoot: true` |
-| Read-only filesystem | `readOnlyRootFilesystem: true` (writable `/tmp` via `emptyDir`) |
-| Capability drop | `capabilities.drop: [ALL]` |
-| Seccomp | `seccompProfile.type: RuntimeDefault` |
-| No SA token mount | `automountServiceAccountToken: false` |
-| Graceful shutdown | `terminationGracePeriodSeconds: 60` + `preStop` sleep |
-| Pod anti-affinity | Soft in dev, hard in prod (pods on different nodes) |
-| NetworkPolicy | Ingress from controller only; egress to DNS, Vault, PostgreSQL only |
-| PodDisruptionBudget | `minAvailable: 1` (dev off), `minAvailable: 2` (prod) |
-
-### Adding Vault Kubernetes auth (future evolution)
-
-The current setup passes AppRole credentials via a K8s Secret. A more cloud-native approach is **Vault Kubernetes auth**: Vault validates the pod's service account token directly against the K8s API, so no long-lived credentials need to be stored at all.
-
-To enable it (no application code changes needed):
-
-```bash
-# On Vault:
-vault auth enable kubernetes
-vault write auth/kubernetes/config \
-  kubernetes_host=https://${K8S_API_HOST}:6443
-
-vault write auth/kubernetes/role/ebank-monolith \
-  bound_service_account_names=ebank-monolith \
-  bound_service_account_namespaces=ebank \
-  policies=ebank-monolith \
-  ttl=1h
-
-# In the Helm chart: switch authentication in values.yaml
-vault:
-  authentication: KUBERNETES   # instead of APPROLE
-  kubernetes:
-    role: ebank-monolith
-```
-
-The `ebank-monolith` Vault policy (`vault/policy/ebank-monolith.hcl`) already grants the right permissions — no policy changes needed.
-
----
-
-## 12. Adding a New Environment
+## 11. Adding a New Environment
 
 Example: adding `E3` as a UAT environment.
 
@@ -685,7 +538,7 @@ The existing policy already covers E3 — the `+` wildcard matches any single pa
 
 ```bash
 docker run -d \
-  -e SPRING_PROFILES_ACTIVE=dev \   # or prod — both use AppRole + Vault
+  -e SPRING_PROFILES_ACTIVE=prod \
   -e VAULT_HOST=vault.uat.example.com \
   -e VAULT_ENV_ID=E3 \
   -e VAULT_ROLE_ID=<role-id> \
@@ -697,7 +550,7 @@ No code changes, no YAML changes, no image rebuild.
 
 ---
 
-## 13. Technical Trade-offs
+## 12. Technical Trade-offs
 
 ### Trade-off 1: Spring Cloud Vault vs Vault Agent Sidecar
 
@@ -711,16 +564,16 @@ No code changes, no YAML changes, no image rebuild.
 
 **Decision**: Spring Cloud Vault was chosen because the stack currently uses Docker Compose, not K8s. When the project moves to K8s, adding Vault Agent Injector alongside Spring Cloud Vault is straightforward — both can coexist.
 
-### Trade-off 2: All config in Vault (dev/prod) vs secrets only
+### Trade-off 2: All config in Vault vs secrets only
 
-| | Secrets only in Vault | All config in Vault (chosen for dev/prod) |
+| | Secrets only in Vault | All config in Vault (chosen) |
 |---|---|---|
 | Vault reads per startup | 1 (small payload) | 1 (larger payload, same round trip) |
 | Where to look for env differences | Vault + YAML files | Vault only |
 | Risk of YAML/Vault drift | High | None |
 | Non-secret changes require Git commit | Yes | No |
 
-**Decision**: all config in Vault for `dev` and `prod`. The `local` profile is the deliberate exception — it keeps credentials in YAML because local dev should have zero infrastructure dependencies beyond a PostgreSQL container. A developer cloning the repo and running `docker compose up -d postgres && mvnw spring-boot:run -Dspring-boot.run.profiles=local` should work immediately with no Vault setup.
+**Decision**: all config in Vault. The operational simplicity of a single source of truth outweighs any downsides.
 
 ### Trade-off 3: VAULT_ENV_ID vs mapping Spring profile to Vault path
 
@@ -760,7 +613,7 @@ Alternative approach: map `prod` Spring profile directly to `E1` Vault path (no 
 
 ---
 
-## 14. Troubleshooting
+## 13. Troubleshooting
 
 ### App fails to start: `Could not resolve placeholder 'VAULT_HOST'`
 
