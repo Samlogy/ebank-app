@@ -28,23 +28,20 @@ spring:
           batch_size: 20
           fetch_size: 50
 
-  # Vault is disabled at the base level.
-  # Profile 'dev'  → enables Vault, AppRole auth, reads E2 path.
-  # Profile 'prod' → enables Vault, AppRole auth, reads E1 path.
-  # Profile 'local'→ does NOT use Vault; all config is in application-local.yaml.
+  # Vault is disabled at the base level; each profile enables it.
   cloud:
     vault:
       enabled: false
       host: ${VAULT_HOST:localhost}
       port: ${VAULT_PORT:8200}
-      scheme: ${VAULT_SCHEME:https}
+      scheme: ${VAULT_SCHEME:http}
       connection-timeout: 5000
       read-timeout: 15000
       kv:
         enabled: true
         backend: secret
-        # VAULT_ENV_ID selects the Vault path: E2 (dev) | E1 (prod)
-        default-context: "e-bank/monolith/${VAULT_ENV_ID:E2}/config"
+        # VAULT_ENV_ID selects the environment path: local | E1 | E2 | …
+        default-context: "e-bank/monolith/${VAULT_ENV_ID:local}/config"
         backend-version: 2
 
 server:
