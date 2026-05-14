@@ -72,8 +72,12 @@ pipeline {
         // (DB password, JWT, admin creds) is stored in Vault and fetched at startup.
         VAULT_ROLE_ID_CRED_ID   = "vault-role-id"               // Secret text : AppRole role-id
         VAULT_SECRET_ID_CRED_ID = "vault-secret-id"             // Secret text : AppRole secret-id
-        TELEGRAM_TOKEN_CRED_ID  = "telegram-bot-token"          // Secret text : token du bot
-        TELEGRAM_CHAT_CRED_ID   = "telegram-chat-id"            // Secret text : chat_id cible
+        // GitOps — GitHub PAT with repo write access for committing image tag updates.
+        // Commits trigger Argo CD to detect the change and sync the cluster.
+        GITOPS_GIT_CRED_ID     = "github-gitops-token"          // Username+Password
+        GITOPS_REPO_URL        = "https://github.com/samlogy/ebank-app.git"
+        TELEGRAM_TOKEN_CRED_ID = "telegram-bot-token"           // Secret text : token du bot
+        TELEGRAM_CHAT_CRED_ID  = "telegram-chat-id"             // Secret text : chat_id cible
     }
 
     options {
@@ -424,6 +428,62 @@ pipeline {
                                 if (env.BRANCH_NAME == 'main') {
                                     sh "docker push ${DOCKER_IMAGE}:latest"
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // ── CI-11 : GitOps — Update image tag ────────────────────
+                // Commits the new image tag into the Helm environment values
+                // file so Argo CD detects the change and syncs the cluster.
+                //
+                // Pattern:
+                //   main    branch → updates helm/environments/prod/values.yaml
+                //   develop branch → updates helm/environments/dev/values.yaml
+                //   other branches → skipped (feature branches are not deployed)
+                //
+                // [skip ci] in the commit message prevents CI from re-triggering.
+                stage('GitOps — Update image tag') {
+                    when {
+                        anyOf {
+                            branch 'main'
+                            branch 'develop'
+                        }
+                    }
+                    steps {
+                        withCredentials([
+                            usernamePassword(
+                                credentialsId: env.GITOPS_GIT_CRED_ID,
+                                usernameVariable: 'GIT_USER',
+                                passwordVariable: 'GIT_TOKEN'
+                            )
+                        ]) {
+                            script {
+                                def gitopsEnv = (env.BRANCH_NAME == 'main') ? 'prod' : 'dev'
+                                def valuesFile = "ebank-monolith/helm/environments/${gitopsEnv}/values.yaml"
+
+                                sh """
+                                    # Authenticate with GitHub using the PAT
+                                    git remote set-url origin \
+                                        "https://\${GIT_USER}:\${GIT_TOKEN}@${GITOPS_REPO_URL.replace('https://', '')}"
+
+                                    git config user.email "jenkins@ebank.ci"
+                                    git config user.name  "Jenkins CI"
+
+                                    # Update the image tag (yq must be installed on the Jenkins agent)
+                                    yq -i '.image.tag = "${IMAGE_TAG}"' ${valuesFile}
+
+                                    git add ${valuesFile}
+
+                                    # Only commit if values actually changed (idempotent)
+                                    if git diff --cached --quiet; then
+                                        echo "Image tag already up to date — nothing to commit."
+                                    else
+                                        git commit -m "gitops(${gitopsEnv}): ebank-monolith → ${IMAGE_TAG} [skip ci]"
+                                        git push origin HEAD:${env.BRANCH_NAME}
+                                        echo "Image tag committed and pushed. Argo CD will sync shortly."
+                                    fi
+                                """
                             }
                         }
                     }

@@ -1,0 +1,71 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ebank
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.io
+spec:
+  description: eBank banking platform — monolith + microservices
+
+  # ── Allowed source repositories ───────────────────────────────────────────
+  sourceRepos:
+    - https://github.com/samlogy/ebank-app
+
+  # ── Allowed deployment targets ────────────────────────────────────────────
+  destinations:
+    - namespace: ebank-dev
+      server: https://kubernetes.default.svc
+    - namespace: ebank-prod
+      server: https://kubernetes.default.svc
+    # Allow Argo CD to manage its own Applications (App of Apps pattern)
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+
+  # ── Cluster-scoped resources the project may create ───────────────────────
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  # ── Namespace-scoped resources allowed ────────────────────────────────────
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+
+  # ── Warn when orphaned resources are detected ─────────────────────────────
+  # Resources that exist in the cluster but not in Git are flagged as orphaned.
+  orphanedResources:
+    warn: true
+
+  # ── Sync windows ──────────────────────────────────────────────────────────
+  # Block automated syncs to production during business hours Mon–Fri.
+  # Manual syncs are always allowed regardless of windows.
+  syncWindows:
+    - kind: deny
+      schedule: "0 8 * * 1-5"   # every weekday at 08:00
+      duration: 10h              # blocks until 18:00
+      applications:
+        - ebank-monolith-prod
+      manualSync: false          # even manual syncs blocked in this window
+
+  # ── RBAC roles ───────────────────────────────────────────────────────────
+  roles:
+    - name: developer
+      description: Dev team — read all, sync dev only
+      policies:
+        - p, proj:ebank:developer, applications, get,    ebank/*, allow
+        - p, proj:ebank:developer, applications, sync,   ebank/ebank-monolith-dev, allow
+        - p, proj:ebank:developer, applications, action, ebank/ebank-monolith-dev, allow
+
+    - name: deployer
+      description: CI/CD service account — sync both environments
+      policies:
+        - p, proj:ebank:deployer, applications, get,    ebank/*, allow
+        - p, proj:ebank:deployer, applications, sync,   ebank/*, allow
+        - p, proj:ebank:deployer, applications, action, ebank/*, allow
+
+    - name: admin
+      description: Platform team — full access
+      policies:
+        - p, proj:ebank:admin, applications, *, ebank/*, allow
+        - p, proj:ebank:admin, clusters,      *, *,        allow

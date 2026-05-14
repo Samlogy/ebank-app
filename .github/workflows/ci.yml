@@ -1,0 +1,141 @@
+name: CI — Pull Request
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "ebank-monolith/src/**"
+      - "ebank-monolith/pom.xml"
+      - "ebank-monolith/Dockerfile"
+      - "ebank-monolith/helm/**"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Java tests ─────────────────────────────────────────────────────────────
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ebank-monolith
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: Run tests
+        run: ./mvnw test -B --no-transfer-progress -DfailIfNoTests=false
+
+      - name: Publish test results
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: "ebank-monolith/target/surefire-reports/*.xml"
+          check_name: "Test Results"
+
+  # ── Helm chart linting ────────────────────────────────────────────────────
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.14.0"
+
+      - name: Lint — default values
+        run: helm lint ebank-monolith/helm
+
+      - name: Lint — dev values
+        run: |
+          helm lint ebank-monolith/helm \
+            -f ebank-monolith/helm/values-dev.yaml \
+            -f ebank-monolith/helm/environments/dev/values.yaml \
+            --set vault.host=vault.dev.example.com
+
+      - name: Lint — prod values
+        run: |
+          helm lint ebank-monolith/helm \
+            -f ebank-monolith/helm/values-prod.yaml \
+            -f ebank-monolith/helm/environments/prod/values.yaml \
+            --set vault.host=vault.prod.example.com
+
+      - name: Helm template dry-run (dev)
+        run: |
+          helm template ebank-monolith ebank-monolith/helm \
+            -f ebank-monolith/helm/values-dev.yaml \
+            -f ebank-monolith/helm/environments/dev/values.yaml \
+            --set vault.host=vault.dev.example.com \
+            --namespace ebank-dev \
+            > /dev/null
+
+  # ── Docker build (no push) ────────────────────────────────────────────────
+  docker-build:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: ebank-monolith
+          push: false
+          tags: ebank-monolith:pr-${{ github.event.number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Security — Trivy image scan ────────────────────────────────────────────
+  trivy-scan:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    needs: docker-build
+    permissions:
+      security-events: write   # required to upload SARIF results
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: ebank-monolith
+          push: false
+          load: true
+          tags: ebank-monolith:scan
+          cache-from: type=gha
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ebank-monolith:scan
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"   # fail PR on HIGH/CRITICAL CVEs
+
+      - name: Upload Trivy SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
