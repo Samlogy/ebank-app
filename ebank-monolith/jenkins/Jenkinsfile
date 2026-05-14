@@ -68,12 +68,8 @@ pipeline {
         // ── IDs des credentials Jenkins ──────────────────────────────────
         DOCKERHUB_CRED_ID      = "dockerhub-credentials"         // Username+Password
         KUBECONFIG_CRED_ID     = "kubeconfig"                    // Secret file
-        // Vault AppRole — the ONLY secrets the cluster needs; everything else
-        // (DB password, JWT, admin creds) is stored in Vault and fetched at startup.
-        VAULT_ROLE_ID_CRED_ID   = "vault-role-id"               // Secret text : AppRole role-id
-        VAULT_SECRET_ID_CRED_ID = "vault-secret-id"             // Secret text : AppRole secret-id
-        TELEGRAM_TOKEN_CRED_ID  = "telegram-bot-token"          // Secret text : token du bot
-        TELEGRAM_CHAT_CRED_ID   = "telegram-chat-id"            // Secret text : chat_id cible
+        TELEGRAM_TOKEN_CRED_ID = "telegram-bot-token"            // Secret text : token du bot
+        TELEGRAM_CHAT_CRED_ID  = "telegram-chat-id"              // Secret text : chat_id cible
     }
 
     options {
@@ -703,10 +699,8 @@ pipeline {
         }
 
         failure {
-            // 1. Roll back to the last known-good Helm release.
-            //    helm upgrade --atomic already rolls back deploy-time failures;
-            //    this catches post-deploy failures (smoke test, E2E, etc.).
-            echo "❌ Pipeline en échec — rollback Helm vers la release précédente..."
+            // 1. Trigger rollback before notifying so the service is restored first
+            echo "❌ Pipeline en échec — déclenchement du rollback..."
             withCredentials([
                 file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
             ]) {
