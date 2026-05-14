@@ -763,8 +763,10 @@ pipeline {
         }
 
         failure {
-            // 1. Trigger rollback before notifying so the service is restored first
-            echo "❌ Pipeline en échec — déclenchement du rollback..."
+            // 1. Roll back to the last known-good Helm release.
+            //    helm upgrade --atomic already rolls back deploy-time failures;
+            //    this catches post-deploy failures (smoke test, E2E, etc.).
+            echo "❌ Pipeline en échec — rollback Helm vers la release précédente..."
             withCredentials([
                 file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
             ]) {
