@@ -1,0 +1,45 @@
+# Dev / testing environment (E2 Vault path).
+# Applied on top of values.yaml when deploying to the dev cluster.
+#
+# Usage:
+#   helm upgrade --install ebank-monolith ./helm \
+#     -f helm/values-dev.yaml \
+#     --set image.tag=<tag>
+
+vault:
+  host: vault.dev.example.com   # ← replace with your dev Vault address
+  scheme: https
+  envId: E2
+  approleSecretName: ebank-vault-approle
+
+spring:
+  profile: dev
+
+replicaCount: 1
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+# A single replica in dev means a PDB would block node maintenance.
+podDisruptionBudget:
+  enabled: false
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "250m"
+    memory: "512Mi"
+
+ingress:
+  enabled: true
+  className: nginx
+  host: ebank-dev.example.com
+  tls: []
+
+# No anti-affinity needed in a single-node dev cluster.
+affinity: {}

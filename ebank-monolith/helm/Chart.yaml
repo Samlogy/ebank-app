@@ -1,0 +1,16 @@
+apiVersion: v2
+name: ebank-monolith
+description: >
+  eBank modular monolith — Spring Boot 3.3, JWT auth, accounts, transfers.
+  Config (including secrets) is centralised in HashiCorp Vault KV v2.
+  Vault AppRole credentials are the only secret the cluster needs to hold.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - banking
+  - spring-boot
+  - vault
+  - java
+maintainers:
+  - name: Mike

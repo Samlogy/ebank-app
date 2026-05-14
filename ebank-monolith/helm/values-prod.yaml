@@ -1,0 +1,63 @@
+# Production environment (E1 Vault path).
+# Applied on top of values.yaml when deploying to the production cluster.
+#
+# Usage:
+#   helm upgrade --install ebank-monolith ./helm \
+#     -f helm/values-prod.yaml \
+#     --set image.tag=<tag>
+
+vault:
+  host: vault.prod.example.com  # ← replace with your prod Vault address
+  scheme: https
+  envId: E1
+  approleSecretName: ebank-vault-approle
+
+spring:
+  profile: prod
+
+replicaCount: 3
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  # Scale earlier in prod to absorb traffic spikes smoothly.
+  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 75
+
+# Keep at least 2 pods running during node drains.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "768Mi"
+  limits:
+    cpu: "1000m"
+    memory: "1536Mi"
+
+ingress:
+  enabled: true
+  className: nginx
+  host: ebank.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+  tls:
+    - secretName: ebank-tls
+      hosts:
+        - ebank.example.com
+
+# Hard anti-affinity in prod: never schedule two app pods on the same node.
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: ebank-monolith
+        topologyKey: kubernetes.io/hostname

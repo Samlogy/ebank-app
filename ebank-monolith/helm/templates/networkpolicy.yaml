@@ -1,0 +1,46 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "ebank-monolith.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank-monolith.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "ebank-monolith.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow HTTP traffic only from the Nginx ingress controller pods.
+    # The controller namespace is labelled kubernetes.io/metadata.name=<ns>
+    # by default in Kubernetes 1.21+.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressControllerNamespace }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.server.port }}
+
+  egress:
+    # DNS — required for all outbound service discovery.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Vault — the app fetches ALL config at startup and on token renewal.
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.vault.port }}
+
+    # PostgreSQL — the datasource URL comes from Vault; the port is fixed.
+    - ports:
+        - protocol: TCP
+          port: 5432
+{{- end }}

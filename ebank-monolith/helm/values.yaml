@@ -1,0 +1,143 @@
+# Default values for ebank-monolith.
+# Override with values-dev.yaml (E2) or values-prod.yaml (E1).
+
+# ── Image ────────────────────────────────────────────────────────────────────
+image:
+  repository: yourdockerhub/ebank-monolith   # set in CI via --set image.repository
+  tag: ""                                     # defaults to Chart.appVersion when empty
+  pullPolicy: Always
+
+imagePullSecrets: []
+
+# ── Replica count (ignored when autoscaling.enabled = true) ──────────────────
+replicaCount: 2
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ── Service Account ───────────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  # Do not auto-mount the SA token — the app never calls the K8s API.
+  automount: false
+  annotations: {}
+  name: ""
+
+# ── HashiCorp Vault ───────────────────────────────────────────────────────────
+# The app authenticates to Vault with AppRole and reads ALL runtime config from:
+#   secret/e-bank/monolith/<envId>/config
+#
+# VAULT_ROLE_ID and VAULT_SECRET_ID must live in a pre-existing K8s Secret:
+#   kubectl create secret generic ebank-vault-approle \
+#     --from-literal=VAULT_ROLE_ID=<role-id> \
+#     --from-literal=VAULT_SECRET_ID=<secret-id> \
+#     -n <namespace>
+#
+# The Jenkins pipeline creates / rotates this secret before every Helm upgrade.
+vault:
+  host: ""          # REQUIRED — set in values-dev.yaml or values-prod.yaml
+  port: 8200
+  scheme: https
+  envId: E1         # KV path segment: E1 = prod, E2 = dev/testing
+  connectionTimeoutMs: 5000
+  readTimeoutMs: 15000
+  approleSecretName: ebank-vault-approle
+
+# ── Spring ────────────────────────────────────────────────────────────────────
+spring:
+  profile: prod     # activates application-{profile}.yaml → spring.config.import vault://
+
+# ── Container port ────────────────────────────────────────────────────────────
+server:
+  port: 8080
+
+# ── Kubernetes Service ────────────────────────────────────────────────────────
+service:
+  type: ClusterIP   # expose only inside the cluster; Ingress handles external traffic
+  port: 80
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: ebank.example.com   # override in environment values files
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+  tls: []
+  # tls:
+  #   - secretName: ebank-tls
+  #     hosts:
+  #       - ebank.example.com
+
+# ── Resource requests & limits ────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "500m"
+    memory: "1Gi"
+
+# ── Horizontal Pod Autoscaler ─────────────────────────────────────────────────
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# ── Pod Disruption Budget ─────────────────────────────────────────────────────
+# Ensures at least minAvailable pods remain running during voluntary disruptions
+# (node drain, rolling cluster upgrades, etc.).
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ── Network Policy ────────────────────────────────────────────────────────────
+# Deny-all by default; allow only what the app needs:
+#   ingress  → from the Nginx ingress controller namespace
+#   egress   → DNS (53), Vault (8200), PostgreSQL (5432)
+networkPolicy:
+  enabled: true
+  ingressControllerNamespace: ingress-nginx
+
+# ── Liveness, Readiness, Startup probes ──────────────────────────────────────
+livenessProbe:
+  initialDelaySeconds: 60   # Spring Boot cold start can exceed 30 s
+  periodSeconds: 15
+  failureThreshold: 3
+  timeoutSeconds: 5
+
+readinessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
+  timeoutSeconds: 5
+
+startupProbe:
+  failureThreshold: 12      # 12 × 10 s = 2 min max startup window
+  periodSeconds: 10
+
+# ── Pod scheduling ────────────────────────────────────────────────────────────
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+
+# Soft anti-affinity: prefer to spread pods across different nodes.
+# Override to {} in single-node dev clusters to avoid pending pods.
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: ebank-monolith
+          topologyKey: kubernetes.io/hostname
+
+# Optional: priorityClassName for workload priority management
+priorityClassName: ""

@@ -68,8 +68,12 @@ pipeline {
         // ── IDs des credentials Jenkins ──────────────────────────────────
         DOCKERHUB_CRED_ID      = "dockerhub-credentials"         // Username+Password
         KUBECONFIG_CRED_ID     = "kubeconfig"                    // Secret file
-        TELEGRAM_TOKEN_CRED_ID = "telegram-bot-token"            // Secret text : token du bot
-        TELEGRAM_CHAT_CRED_ID  = "telegram-chat-id"              // Secret text : chat_id cible
+        // Vault AppRole — the ONLY secrets the cluster needs; everything else
+        // (DB password, JWT, admin creds) is stored in Vault and fetched at startup.
+        VAULT_ROLE_ID_CRED_ID   = "vault-role-id"               // Secret text : AppRole role-id
+        VAULT_SECRET_ID_CRED_ID = "vault-secret-id"             // Secret text : AppRole secret-id
+        TELEGRAM_TOKEN_CRED_ID  = "telegram-bot-token"          // Secret text : token du bot
+        TELEGRAM_CHAT_CRED_ID   = "telegram-chat-id"            // Secret text : chat_id cible
     }
 
     options {
@@ -434,31 +438,59 @@ pipeline {
         stage('CD') {
             stages {
 
-                // ── CD-1 : Déploiement Kubernetes ─────────────────────────
-                // envsubst injecte IMAGE_FULL dans deployment.yaml puis kubectl apply.
+                // ── CD-1 : Déploiement Kubernetes via Helm ────────────────
+                // Stratégie :
+                //   1. Créer / faire tourner le K8s Secret AppRole (VAULT_ROLE_ID +
+                //      VAULT_SECRET_ID) — seul secret que le cluster doit stocker.
+                //   2. helm upgrade --install avec le fichier de valeurs de
+                //      l'environnement cible (dev ou prod).
+                //   3. --atomic : rollback automatique de Helm si le déploiement échoue
+                //      avant la fin du timeout.
+                //
                 // Rolling update : maxSurge=1, maxUnavailable=0 → zéro downtime.
                 stage('Deploy Kubernetes') {
                     steps {
                         withCredentials([
-                            file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
+                            file(credentialsId: env.KUBECONFIG_CRED_ID,      variable: 'KUBECONFIG'),
+                            string(credentialsId: env.VAULT_ROLE_ID_CRED_ID,  variable: 'V_ROLE_ID'),
+                            string(credentialsId: env.VAULT_SECRET_ID_CRED_ID, variable: 'V_SECRET_ID')
                         ]) {
-                            sh """
-                                export IMAGE_FULL="${DOCKER_IMAGE}:${IMAGE_TAG}"
+                            script {
+                                // Use values-prod.yaml for the main branch; values-dev.yaml for everything else.
+                                def helmValues = (env.BRANCH_NAME == 'main') ? 'values-prod.yaml' : 'values-dev.yaml'
+                                sh """
+                                    # 1. Ensure the namespace exists
+                                    kubectl create namespace ${K8S_NAMESPACE} \
+                                        --dry-run=client -o yaml | kubectl apply -f -
 
-                                kubectl apply -f ebank-monolith/jenkins/k8s/namespace.yaml
-                                kubectl apply -f ebank-monolith/jenkins/k8s/configmap.yaml -n ${K8S_NAMESPACE}
+                                    # 2. Create / rotate the AppRole K8s Secret.
+                                    #    --dry-run=client -o yaml | kubectl apply -f - is
+                                    #    idempotent and works on both create and update.
+                                    kubectl create secret generic ebank-vault-approle \
+                                        --from-literal=VAULT_ROLE_ID=\${V_ROLE_ID} \
+                                        --from-literal=VAULT_SECRET_ID=\${V_SECRET_ID} \
+                                        --namespace ${K8S_NAMESPACE} \
+                                        --dry-run=client -o yaml | kubectl apply -f -
 
-                                IMAGE_FULL=\$IMAGE_FULL envsubst '\$IMAGE_FULL' \
-                                    < ebank-monolith/jenkins/k8s/deployment.yaml \
-                                    | kubectl apply -f - -n ${K8S_NAMESPACE}
-
-                                kubectl apply -f ebank-monolith/jenkins/k8s/service.yaml  -n ${K8S_NAMESPACE}
-                                kubectl apply -f ebank-monolith/jenkins/k8s/ingress.yaml  -n ${K8S_NAMESPACE}
-                                kubectl apply -f ebank-monolith/jenkins/k8s/hpa.yaml      -n ${K8S_NAMESPACE}
-
-                                kubectl rollout status deployment/${APP_NAME} \
-                                    -n ${K8S_NAMESPACE} --timeout=120s
-                            """
+                                    # 3. Deploy with Helm.
+                                    #    --atomic    : auto-rollback if pods do not become Ready
+                                    #                  within --timeout (also runs post-install
+                                    #                  hooks and waits for them).
+                                    #    --wait      : block until all pods are Ready.
+                                    #    --timeout   : matches Spring Boot's max startup window
+                                    #                  (startupProbe: 12 × 10 s = 2 min, plus
+                                    #                   Vault fetch and readiness probe window).
+                                    helm upgrade --install ${APP_NAME} ebank-monolith/helm \
+                                        --namespace ${K8S_NAMESPACE} \
+                                        --create-namespace \
+                                        -f ebank-monolith/helm/${helmValues} \
+                                        --set image.repository=${DOCKER_IMAGE} \
+                                        --set image.tag=${IMAGE_TAG} \
+                                        --atomic \
+                                        --timeout 5m \
+                                        --wait
+                                """
+                            }
                         }
                     }
                 }
@@ -671,16 +703,14 @@ pipeline {
         }
 
         failure {
-            // 1. Trigger rollback before notifying so the service is restored first
-            echo "❌ Pipeline en échec — déclenchement du rollback..."
+            // 1. Roll back to the last known-good Helm release.
+            //    helm upgrade --atomic already rolls back deploy-time failures;
+            //    this catches post-deploy failures (smoke test, E2E, etc.).
+            echo "❌ Pipeline en échec — rollback Helm vers la release précédente..."
             withCredentials([
                 file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
             ]) {
-                sh """
-                    chmod +x ebank-monolith/jenkins/scripts/rollback.sh
-                    bash ebank-monolith/jenkins/scripts/rollback.sh \
-                        ${APP_NAME} ${K8S_NAMESPACE} || true
-                """
+                sh "helm rollback ${APP_NAME} --namespace ${K8S_NAMESPACE} --wait || true"
             }
             // 2. Notify team after rollback attempt
             script {

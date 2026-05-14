@@ -1,5 +1,16 @@
-# IMAGE_FULL is replaced at deploy time by the Jenkins pipeline using envsubst:
-#   IMAGE_FULL=yourdockerhub/ebank-monolith:main-a3f9c12-42 envsubst '$IMAGE_FULL' < deployment.yaml | kubectl apply -f -
+# ─────────────────────────────────────────────────────────────────────────────
+# SUPPLEMENTARY — for manual / emergency kubectl deployments only.
+# The standard deployment path is the Helm chart at ebank-monolith/helm/.
+#
+# IMAGE_FULL is replaced at deploy time with envsubst:
+#   IMAGE_FULL=registry/ebank-monolith:tag envsubst '$IMAGE_FULL' \
+#     < deployment.yaml | kubectl apply -f -
+#
+# Prerequisites (apply in this order):
+#   kubectl apply -f namespace.yaml
+#   kubectl apply -f configmap.yaml -n ebank
+#   kubectl apply -f secret.yaml    -n ebank   (AppRole creds)
+# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,18 +26,22 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1         # Allow 1 extra pod during rollout (zero-downtime)
-      maxUnavailable: 0   # Never take a pod down before the new one is ready
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
         app: ebank-monolith
     spec:
-      # Run as non-root — matches the Dockerfile USER ebank declaration
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      terminationGracePeriodSeconds: 60
 
       containers:
         - name: ebank-monolith
@@ -37,34 +52,43 @@ spec:
               containerPort: 8080
               protocol: TCP
 
-          # ── Environment from ConfigMap ──────────────────────────
+          # ── Non-secret config from ConfigMap ─────────────────────
           envFrom:
             - configMapRef:
                 name: ebank-monolith-config
-            - secretRef:
-                name: ebank-monolith-secret
 
-          # ── Resource requests & limits ──────────────────────────
+          # ── Vault AppRole credentials from Secret ─────────────────
+          # Everything else (DB URL, password, JWT config, etc.) is
+          # fetched from Vault by Spring Cloud Vault at startup.
+          env:
+            - name: VAULT_ROLE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ebank-vault-approle
+                  key: VAULT_ROLE_ID
+            - name: VAULT_SECRET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ebank-vault-approle
+                  key: VAULT_SECRET_ID
+
           resources:
             requests:
-              cpu: "250m"      # 0.25 vCPU guaranteed
+              cpu: "250m"
               memory: "512Mi"
             limits:
-              cpu: "500m"      # 0.5 vCPU max
+              cpu: "500m"
               memory: "1Gi"
 
-          # ── Liveness probe — restarts pod if app is stuck ───────
-          # Requires spring.boot.actuator management.endpoint.health.probes.enabled=true
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
               port: 8080
-            initialDelaySeconds: 60   # Spring Boot can be slow to start
+            initialDelaySeconds: 60
             periodSeconds: 15
             failureThreshold: 3
             timeoutSeconds: 5
 
-          # ── Readiness probe — gates traffic until app is ready ──
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
@@ -74,15 +98,18 @@ spec:
             failureThreshold: 3
             timeoutSeconds: 5
 
-          # ── Startup probe — extra grace period on cold start ────
           startupProbe:
             httpGet:
               path: /actuator/health
               port: 8080
-            failureThreshold: 12    # 12 × 10s = 2 min max startup time
+            failureThreshold: 12
             periodSeconds: 10
 
-          # ── Container security ──────────────────────────────────
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "sleep 5"]
+
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -90,7 +117,6 @@ spec:
               drop:
                 - ALL
 
-          # ── Writable temp dir (needed for Spring Boot's Tomcat) ─
           volumeMounts:
             - name: tmp-dir
               mountPath: /tmp
