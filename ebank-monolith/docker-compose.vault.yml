@@ -1,20 +1,15 @@
-# Vault overlay — runs the 'dev' Spring profile against a local Vault dev server.
+# Vault overlay for local development
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.vault.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.vault.yml up -d
 #
 # What it does:
-#   1. Starts Vault in dev mode (ephemeral data, root token = "root")
-#   2. Runs vault-init once: mounts KV v2, seeds E2 config, creates AppRole
-#   3. Starts the app with the 'dev' profile
+#   1. Starts Vault in dev mode (root token = "root", data is ephemeral)
+#   2. Runs vault-init to enable KV v2 and seed all local config at:
+#        secret/e-bank/monolith/local/config
+#   3. Patches the app service to use the local profile + connect to Vault
 #
-# Auth note:
-#   The 'dev' Spring profile uses AppRole in real deployments. Here we override
-#   it to Token auth via SPRING_CLOUD_VAULT_* env vars so docker-compose does not
-#   need to coordinate dynamically generated AppRole credentials between containers.
-#   Real dev/prod deployments always use AppRole (see application-dev.yaml).
-#
-# Vault UI: http://localhost:8200  (token: root)
+# Vault UI is available at http://localhost:8200 (token: root)
 
 services:
 
@@ -54,17 +49,11 @@ services:
 
   app:
     environment:
-      SPRING_PROFILES_ACTIVE: dev
-      VAULT_ENV_ID: E2
-      # VAULT_HOST resolves the ${VAULT_HOST} placeholder in application-dev.yaml.
+      SPRING_PROFILES_ACTIVE: local
       VAULT_HOST: vault
-      # Override the dev profile's AppRole auth with Token for this local stack.
-      # The SPRING_CLOUD_VAULT_* env vars take precedence over application-dev.yaml.
-      SPRING_CLOUD_VAULT_AUTHENTICATION: TOKEN
-      SPRING_CLOUD_VAULT_TOKEN: root
-      SPRING_CLOUD_VAULT_HOST: vault
-      SPRING_CLOUD_VAULT_PORT: 8200
-      SPRING_CLOUD_VAULT_SCHEME: http
+      VAULT_PORT: 8200
+      VAULT_TOKEN: root
+      VAULT_ENV_ID: local
     depends_on:
       vault-init:
         condition: service_completed_successfully
