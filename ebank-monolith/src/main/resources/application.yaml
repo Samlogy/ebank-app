@@ -18,8 +18,9 @@ spring:
       leak-detection-threshold: 5000
 
   jpa:
+    open-in-view: false   # disable OSIV — avoids lazy-load surprises and thread contention
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
@@ -27,6 +28,11 @@ spring:
         jdbc:
           batch_size: 20
           fetch_size: 50
+
+  # Java 21 virtual threads — dramatically reduces thread overhead under load
+  threads:
+    virtual:
+      enabled: true
 
   # Vault is disabled at the base level.
   # Profile 'dev'  → enables Vault, AppRole auth, reads E2 path.

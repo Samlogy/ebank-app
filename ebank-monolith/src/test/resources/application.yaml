@@ -1,12 +1,35 @@
 # Base test overrides — always applied during test runs regardless of active profile
 spring:
   datasource:
-    url: jdbc:h2:mem:test;DB_CLOSE_DELAY=-1
+    # H2 in PostgreSQL compatibility mode so Flyway migrations run unmodified
+    url: jdbc:h2:mem:test;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;DATABASE_TO_LOWER=true;DEFAULT_NULL_ORDERING=HIGH
     username: sa
     password:
     driver-class-name: org.h2.Driver
 
   jpa:
+    open-in-view: false
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: validate
     show-sql: false
+
+  flyway:
+    enabled: true
+    # Disable placeholder replacement so ${} in SQL is kept as-is
+    placeholder-replacement: false
+
+  threads:
+    virtual:
+      enabled: false   # virtual threads off in tests to keep output deterministic
+
+  # Vault is never used in tests
+  cloud:
+    vault:
+      enabled: false
+
+# Disable SpringDoc scanning in tests — avoids Spring Framework 7 API surface issues
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
