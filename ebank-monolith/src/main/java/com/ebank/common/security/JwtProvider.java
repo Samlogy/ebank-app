@@ -1,11 +1,15 @@
 package com.ebank.common.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwsHeader;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.SigningKeyResolverAdapter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.security.Key;
 import java.util.Date;
 
 @Component
@@ -21,13 +25,13 @@ public class JwtProvider {
         Date now    = new Date();
         Date expiry = new Date(now.getTime() + jwtExpiration);
         return Jwts.builder()
-                .header().add("kid", keyStore.currentKid()).and()
-                .subject(userId.toString())
+                .setHeaderParam("kid", keyStore.currentKid())
+                .setSubject(userId.toString())
                 .claim("email", email)
                 .claim("role", role)
-                .issuedAt(now)
-                .expiration(expiry)
-                .signWith(keyStore.currentPrivateKey(), Jwts.SIG.RS256)
+                .setIssuedAt(now)
+                .setExpiration(expiry)
+                .signWith(keyStore.currentPrivateKey(), SignatureAlgorithm.RS256)
                 .compact();
     }
 
@@ -48,11 +52,17 @@ public class JwtProvider {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private Claims parse(String token) {
-        return Jwts.parser()
-                .keyLocator(header -> keyStore.findPublicKey((String) header.get("kid")))
+        return Jwts.parserBuilder()
+                .setSigningKeyResolver(new SigningKeyResolverAdapter() {
+                    @Override
+                    public Key resolveSigningKey(JwsHeader header, Claims claims) {
+                        return keyStore.findPublicKey((String) header.get("kid"));
+                    }
+                })
                 .build()
-                .parseSignedClaims(token)
-                .getPayload();
+                .parseClaimsJws(token)
+                .getBody();
     }
 }
