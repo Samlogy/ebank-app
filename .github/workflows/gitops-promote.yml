@@ -1,0 +1,178 @@
+name: GitOps — Build & Promote
+
+# Triggered when application code changes land on main or develop.
+# Builds and pushes the Docker image, then commits the new image tag to
+# the appropriate environment values file so Argo CD can detect and sync.
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "ebank-monolith/src/**"
+      - "ebank-monolith/pom.xml"
+      - "ebank-monolith/Dockerfile"
+  # Allow manual promotion (e.g. hotfix without a code change)
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [dev, prod]
+
+concurrency:
+  # Only one promote workflow per branch at a time.
+  group: gitops-${{ github.ref_name }}
+  cancel-in-progress: false   # never cancel in-flight deployments
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ secrets.DOCKER_HUB_USERNAME }}/ebank-monolith
+
+jobs:
+  # ── Build and push Docker image ───────────────────────────────────────────
+  build-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
+      environment: ${{ steps.env.outputs.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine target environment
+        id: env
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "name=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "name=prod" >> $GITHUB_OUTPUT
+          else
+            echo "name=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Java 17 (Maven build cache)
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: Run tests before building image
+        working-directory: ebank-monolith
+        run: ./mvnw test -B --no-transfer-progress -DfailIfNoTests=false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            # Short SHA — deterministic, traceable to Git commit
+            type=sha,prefix=,suffix=,format=short
+            # Branch + build number for human readability
+            type=raw,value=${{ github.ref_name }}-${{ github.run_number }}
+            # latest only on main
+            type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: ebank-monolith
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Build args for traceability labels
+          build-args: |
+            GIT_COMMIT=${{ github.sha }}
+            GIT_BRANCH=${{ github.ref_name }}
+            BUILD_NUMBER=${{ github.run_number }}
+
+  # ── Promote: update image tag in GitOps values file ──────────────────────
+  promote:
+    name: Promote to ${{ needs.build-push.outputs.environment }}
+    runs-on: ubuntu-latest
+    needs: build-push
+    environment:
+      # GitHub Environments let you add required reviewers for prod promotion.
+      # Create 'prod' environment in repo Settings → Environments and add approvers.
+      name: ${{ needs.build-push.outputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Use a PAT so the commit can trigger subsequent workflows
+          # (GITHUB_TOKEN commits do not trigger Actions to avoid infinite loops).
+          token: ${{ secrets.GITOPS_TOKEN }}
+          ref: ${{ github.ref_name }}
+
+      - name: Set up yq (YAML processor)
+        uses: mikefarah/yq@v4.43.1
+
+      - name: Update image tag in environment values
+        env:
+          IMAGE_TAG: ${{ needs.build-push.outputs.image-tag }}
+          GITOPS_ENV: ${{ needs.build-push.outputs.environment }}
+        run: |
+          VALUES_FILE="ebank-monolith/helm/environments/${GITOPS_ENV}/values.yaml"
+
+          echo "Updating ${VALUES_FILE} → image.tag=${IMAGE_TAG}"
+          yq -i ".image.tag = \"${IMAGE_TAG}\"" "${VALUES_FILE}"
+
+          # Verify the update
+          echo "Updated values file:"
+          cat "${VALUES_FILE}"
+
+      - name: Commit and push image tag update
+        env:
+          IMAGE_TAG: ${{ needs.build-push.outputs.image-tag }}
+          GITOPS_ENV: ${{ needs.build-push.outputs.environment }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add "ebank-monolith/helm/environments/${GITOPS_ENV}/values.yaml"
+
+          # Only commit if there is actually a change (idempotent on re-runs)
+          if git diff --cached --quiet; then
+            echo "No changes to commit — image tag is already up to date."
+            exit 0
+          fi
+
+          git commit -m "gitops(${GITOPS_ENV}): deploy ebank-monolith → ${IMAGE_TAG}
+
+          Triggered by: ${{ github.actor }}
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          [skip ci]"
+
+          git push origin "${{ github.ref_name }}"
+
+      - name: Summary
+        env:
+          IMAGE_TAG: ${{ needs.build-push.outputs.image-tag }}
+          GITOPS_ENV: ${{ needs.build-push.outputs.environment }}
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## GitOps Promotion Summary
+
+          | Field        | Value |
+          |---|---|
+          | Environment  | \`${GITOPS_ENV}\` |
+          | Image tag    | \`${IMAGE_TAG}\` |
+          | Argo CD app  | \`ebank-monolith-${GITOPS_ENV}\` |
+          | Commit SHA   | \`${{ github.sha }}\` |
+
+          Argo CD will detect the values file change and sync automatically.
+          EOF

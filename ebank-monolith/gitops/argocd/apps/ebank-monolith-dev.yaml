@@ -1,0 +1,85 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ebank-monolith-dev
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.io   # cascade-delete K8s resources on App deletion
+  labels:
+    app.kubernetes.io/name: ebank-monolith
+    app.kubernetes.io/part-of: ebank
+    environment: dev
+  annotations:
+    # Argo CD Image Updater (optional): auto-detect new tags matching the pattern.
+    # Requires argocd-image-updater to be installed in the cluster.
+    # argocd-image-updater.argoproj.io/image-list: "ebank=yourdockerhub/ebank-monolith"
+    # argocd-image-updater.argoproj.io/ebank.update-strategy: latest
+    # argocd-image-updater.argoproj.io/write-back-method: git
+spec:
+  project: ebank
+
+  # ── Source — Helm chart + stacked values files ────────────────────────────
+  source:
+    repoURL: https://github.com/samlogy/ebank-app
+    # Track the develop branch. Every merge to develop triggers a CI run that
+    # updates environments/dev/values.yaml and Argo CD detects the new commit.
+    targetRevision: develop
+    path: ebank-monolith/helm
+    helm:
+      # Value files are resolved relative to path (ebank-monolith/helm/).
+      # Layer order (last wins):
+      #   1. values.yaml          — chart defaults
+      #   2. values-dev.yaml      — static dev config (Vault host, resources)
+      #   3. environments/dev/values.yaml — image.tag (written by CI)
+      valueFiles:
+        - values.yaml
+        - values-dev.yaml
+        - environments/dev/values.yaml
+      # Skip CRD installation — Argo CD manages CRDs separately.
+      skipCrds: false
+
+  # ── Destination ───────────────────────────────────────────────────────────
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ebank-dev
+
+  # ── Sync policy — fully automated for dev ────────────────────────────────
+  syncPolicy:
+    automated:
+      prune: true      # remove K8s resources deleted from Git
+      selfHeal: true   # revert manual cluster edits back to Git state
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true          # create ebank-dev if it doesn't exist
+      - ApplyOutOfSyncOnly=true       # skip resources that haven't changed
+      - ServerSideApply=true          # use K8s SSA for better conflict handling
+      - PrunePropagationPolicy=foreground
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # ── Revision history ──────────────────────────────────────────────────────
+  revisionHistoryLimit: 10
+
+  # ── Ignore transient differences ─────────────────────────────────────────
+  # Prevent Argo CD from flagging cluster-managed fields as out-of-sync.
+  ignoreDifferences:
+    # HPA manages replicas at runtime; ignore divergence from Helm values.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    # HPA status is cluster-side only.
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jqPathExpressions:
+        - .status
+    # Webhook caBundle is injected by the cert-manager or admission controller.
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle

@@ -1,0 +1,73 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ebank-monolith-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.io
+  labels:
+    app.kubernetes.io/name: ebank-monolith
+    app.kubernetes.io/part-of: ebank
+    environment: prod
+spec:
+  project: ebank
+
+  # ── Source — Helm chart + stacked values files ────────────────────────────
+  source:
+    repoURL: https://github.com/samlogy/ebank-app
+    # Track main. The CI pipeline commits a new image tag to
+    # environments/prod/values.yaml after every successful main build.
+    targetRevision: main
+    path: ebank-monolith/helm
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+        - environments/prod/values.yaml   # image.tag — written by CI
+      skipCrds: false
+
+  # ── Destination ───────────────────────────────────────────────────────────
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ebank-prod
+
+  # ── Sync policy — conservative for prod ──────────────────────────────────
+  # selfHeal: true  — cluster drift is automatically corrected (config changes
+  #                   in Git always win; no one should kubectl-edit production).
+  # prune: false    — resources are NEVER automatically deleted; a human must
+  #                   review and manually trigger a sync with prune enabled.
+  # The AppProject's syncWindows block automated syncs Mon–Fri 08:00–18:00
+  # so deployments happen outside business hours unless manually overridden.
+  syncPolicy:
+    automated:
+      prune: false     # no automatic pruning in prod — explicit human action required
+      selfHeal: true   # drift correction is safe (always converges to Git)
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      - PrunePropagationPolicy=foreground
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+
+  revisionHistoryLimit: 20   # more history in prod for audit purposes
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jqPathExpressions:
+        - .status
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle

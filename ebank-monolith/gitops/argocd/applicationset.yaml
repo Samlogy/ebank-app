@@ -1,0 +1,113 @@
+# ── ApplicationSet — alternative to individual Application manifests ───────────
+#
+# An ApplicationSet generates one Argo CD Application per list entry.
+# Use this instead of the individual apps/*.yaml files if you prefer a
+# single manifest to manage all environments.
+#
+# This approach scales better when you have many environments (E2, E3, UAT…).
+#
+# Apply: kubectl apply -f applicationset.yaml   (instead of bootstrap.yaml)
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: ebank-monolith
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: ebank
+spec:
+  # goTemplate enables Go templating in the template section.
+  # Required for the if/else logic in templatePatch below.
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+
+  # ── Generator — one element per environment ────────────────────────────────
+  generators:
+    - list:
+        elements:
+          - environment: dev
+            namespace: ebank-dev
+            branch: develop          # Argo CD watches this branch for dev
+            vaultEnvId: E2
+          - environment: prod
+            namespace: ebank-prod
+            branch: main             # Argo CD watches main for prod
+            vaultEnvId: E1
+
+  # ── Base template (applied to every generated Application) ────────────────
+  template:
+    metadata:
+      name: "ebank-monolith-{{ .environment }}"
+      namespace: argocd
+      finalizers:
+        - resources-finalizer.argocd.io
+      labels:
+        app.kubernetes.io/name: ebank-monolith
+        app.kubernetes.io/part-of: ebank
+        environment: "{{ .environment }}"
+    spec:
+      project: ebank
+
+      source:
+        repoURL: https://github.com/samlogy/ebank-app
+        targetRevision: "{{ .branch }}"
+        path: ebank-monolith/helm
+        helm:
+          valueFiles:
+            - values.yaml
+            - "values-{{ .environment }}.yaml"
+            - "environments/{{ .environment }}/values.yaml"
+
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .namespace }}"
+
+      syncPolicy:
+        # Default: automated sync, with prune and selfHeal enabled.
+        # templatePatch overrides this for prod (no prune).
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=true
+          - ApplyOutOfSyncOnly=true
+          - ServerSideApply=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+
+      revisionHistoryLimit: 10
+
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/replicas
+        - group: autoscaling
+          kind: HorizontalPodAutoscaler
+          jqPathExpressions:
+            - .status
+
+  # ── Per-environment overrides ──────────────────────────────────────────────
+  # templatePatch is a strategic-merge-patch applied on top of the base template.
+  # Here we disable auto-prune for prod (safe default) and increase retry window.
+  templatePatch: |
+    {{- if eq .environment "prod" }}
+    spec:
+      syncPolicy:
+        automated:
+          prune: false        # never auto-delete prod resources
+          selfHeal: true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 5m
+      revisionHistoryLimit: 20
+    {{- end }}
