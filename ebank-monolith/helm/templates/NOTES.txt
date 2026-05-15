@@ -1,0 +1,43 @@
+ebank-monolith deployed successfully!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  App URL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.tls }}
+  https://{{ (index .hosts 0) }}
+{{- end }}
+{{- if not .Values.ingress.tls }}
+  http://{{ .Values.ingress.host }}
+{{- end }}
+{{- else }}
+  kubectl port-forward svc/{{ include "ebank-monolith.fullname" . }} 8080:{{ .Values.service.port }} \
+    -n {{ .Release.Namespace }}
+  → http://localhost:8080
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Vault config
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Path   : secret/e-bank/monolith/{{ .Values.vault.envId }}/config
+  Host   : {{ .Values.vault.host }}:{{ .Values.vault.port }} ({{ .Values.vault.scheme }})
+  Auth   : AppRole  (K8s Secret → {{ .Values.vault.approleSecretName }})
+  Profile: {{ .Values.spring.profile }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Useful commands
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Pod status
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "ebank-monolith.name" . }}
+
+  # Live logs
+  kubectl logs -f -n {{ .Release.Namespace }} \
+    -l app.kubernetes.io/name={{ include "ebank-monolith.name" . }}
+
+  # Health
+  kubectl exec -n {{ .Release.Namespace }} \
+    deploy/{{ include "ebank-monolith.fullname" . }} -- \
+    wget -qO- http://localhost:{{ .Values.server.port }}/actuator/health
+
+  # Rollback to previous release
+  helm rollback {{ .Release.Name }} -n {{ .Release.Namespace }}

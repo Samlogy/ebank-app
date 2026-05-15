@@ -1,0 +1,22 @@
+{
+  "_comment":                                           "Template for the E1 (prod) environment. Replace every CHANGE_ME value before loading.",
+  "spring.datasource.url":                              "jdbc:postgresql://CHANGE_ME_DB_HOST:5432/ebank_prod",
+  "spring.datasource.username":                         "CHANGE_ME_DB_USER",
+  "spring.datasource.password":                         "CHANGE_ME_DB_PASSWORD",
+  "spring.datasource.hikari.maximum-pool-size":         "20",
+  "spring.datasource.hikari.minimum-idle":              "5",
+  "spring.datasource.hikari.connection-timeout":        "3000",
+  "spring.datasource.hikari.idle-timeout":              "300000",
+  "spring.datasource.hikari.max-lifetime":              "900000",
+  "spring.datasource.hikari.leak-detection-threshold":  "5000",
+  "spring.jpa.hibernate.ddl-auto":                      "validate",
+  "spring.jpa.show-sql":                                "false",
+  "jwt.expiration":                                     "86400000",
+  "admin.email":                                        "CHANGE_ME_ADMIN_EMAIL",
+  "admin.password":                                     "CHANGE_ME_ADMIN_PASSWORD",
+  "rate-limiting.login.capacity":                       "10",
+  "rate-limiting.login.refill-minutes":                 "1",
+  "logging.level.root":                                 "WARN",
+  "logging.level.com.ebank":                            "INFO",
+  "management.endpoints.web.exposure.include":          "health"
+}

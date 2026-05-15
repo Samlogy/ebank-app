@@ -1,3 +1,23 @@
+// ── Telegram notification helper ──────────────────────────────────────────
+// Fetches credentials from Jenkins, writes the message to a temp file, and
+// POSTs it via the Telegram Bot API with HTML parse_mode.
+// Using --data-urlencode "text@file" avoids shell-escaping issues with
+// special characters (angle brackets, ampersands, accented letters, etc.).
+def telegramSend(String tokenCredId, String chatCredId, String message) {
+    withCredentials([
+        string(credentialsId: tokenCredId, variable: 'TG_TOKEN'),
+        string(credentialsId: chatCredId,  variable: 'TG_CHAT')
+    ]) {
+        writeFile file: '.telegram-msg', text: message
+        sh '''curl -s --retry 3 -m 10 -X POST \
+            "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "parse_mode=HTML" \
+            --data-urlencode "text@.telegram-msg" || true'''
+        sh 'rm -f .telegram-msg'
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  ebank-monolith — Jenkins Declarative Pipeline
 //  Auteur : Mike
@@ -46,8 +66,14 @@ pipeline {
         APP_BASE_URL      = "http://ebank.local"
 
         // ── IDs des credentials Jenkins ──────────────────────────────────
-        DOCKERHUB_CRED_ID  = "dockerhub-credentials"             // Username+Password
-        KUBECONFIG_CRED_ID = "kubeconfig"                        // Secret file
+        DOCKERHUB_CRED_ID      = "dockerhub-credentials"         // Username+Password
+        KUBECONFIG_CRED_ID     = "kubeconfig"                    // Secret file
+        // Vault AppRole — the ONLY secrets the cluster needs; everything else
+        // (DB password, JWT, admin creds) is stored in Vault and fetched at startup.
+        VAULT_ROLE_ID_CRED_ID   = "vault-role-id"               // Secret text : AppRole role-id
+        VAULT_SECRET_ID_CRED_ID = "vault-secret-id"             // Secret text : AppRole secret-id
+        TELEGRAM_TOKEN_CRED_ID  = "telegram-bot-token"          // Secret text : token du bot
+        TELEGRAM_CHAT_CRED_ID   = "telegram-chat-id"            // Secret text : chat_id cible
     }
 
     options {
@@ -412,31 +438,59 @@ pipeline {
         stage('CD') {
             stages {
 
-                // ── CD-1 : Déploiement Kubernetes ─────────────────────────
-                // envsubst injecte IMAGE_FULL dans deployment.yaml puis kubectl apply.
+                // ── CD-1 : Déploiement Kubernetes via Helm ────────────────
+                // Stratégie :
+                //   1. Créer / faire tourner le K8s Secret AppRole (VAULT_ROLE_ID +
+                //      VAULT_SECRET_ID) — seul secret que le cluster doit stocker.
+                //   2. helm upgrade --install avec le fichier de valeurs de
+                //      l'environnement cible (dev ou prod).
+                //   3. --atomic : rollback automatique de Helm si le déploiement échoue
+                //      avant la fin du timeout.
+                //
                 // Rolling update : maxSurge=1, maxUnavailable=0 → zéro downtime.
                 stage('Deploy Kubernetes') {
                     steps {
                         withCredentials([
-                            file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
+                            file(credentialsId: env.KUBECONFIG_CRED_ID,      variable: 'KUBECONFIG'),
+                            string(credentialsId: env.VAULT_ROLE_ID_CRED_ID,  variable: 'V_ROLE_ID'),
+                            string(credentialsId: env.VAULT_SECRET_ID_CRED_ID, variable: 'V_SECRET_ID')
                         ]) {
-                            sh """
-                                export IMAGE_FULL="${DOCKER_IMAGE}:${IMAGE_TAG}"
+                            script {
+                                // Use values-prod.yaml for the main branch; values-dev.yaml for everything else.
+                                def helmValues = (env.BRANCH_NAME == 'main') ? 'values-prod.yaml' : 'values-dev.yaml'
+                                sh """
+                                    # 1. Ensure the namespace exists
+                                    kubectl create namespace ${K8S_NAMESPACE} \
+                                        --dry-run=client -o yaml | kubectl apply -f -
 
-                                kubectl apply -f ebank-monolith/jenkins/k8s/namespace.yaml
-                                kubectl apply -f ebank-monolith/jenkins/k8s/configmap.yaml -n ${K8S_NAMESPACE}
+                                    # 2. Create / rotate the AppRole K8s Secret.
+                                    #    --dry-run=client -o yaml | kubectl apply -f - is
+                                    #    idempotent and works on both create and update.
+                                    kubectl create secret generic ebank-vault-approle \
+                                        --from-literal=VAULT_ROLE_ID=\${V_ROLE_ID} \
+                                        --from-literal=VAULT_SECRET_ID=\${V_SECRET_ID} \
+                                        --namespace ${K8S_NAMESPACE} \
+                                        --dry-run=client -o yaml | kubectl apply -f -
 
-                                IMAGE_FULL=\$IMAGE_FULL envsubst '\$IMAGE_FULL' \
-                                    < ebank-monolith/jenkins/k8s/deployment.yaml \
-                                    | kubectl apply -f - -n ${K8S_NAMESPACE}
-
-                                kubectl apply -f ebank-monolith/jenkins/k8s/service.yaml  -n ${K8S_NAMESPACE}
-                                kubectl apply -f ebank-monolith/jenkins/k8s/ingress.yaml  -n ${K8S_NAMESPACE}
-                                kubectl apply -f ebank-monolith/jenkins/k8s/hpa.yaml      -n ${K8S_NAMESPACE}
-
-                                kubectl rollout status deployment/${APP_NAME} \
-                                    -n ${K8S_NAMESPACE} --timeout=120s
-                            """
+                                    # 3. Deploy with Helm.
+                                    #    --atomic    : auto-rollback if pods do not become Ready
+                                    #                  within --timeout (also runs post-install
+                                    #                  hooks and waits for them).
+                                    #    --wait      : block until all pods are Ready.
+                                    #    --timeout   : matches Spring Boot's max startup window
+                                    #                  (startupProbe: 12 × 10 s = 2 min, plus
+                                    #                   Vault fetch and readiness probe window).
+                                    helm upgrade --install ${APP_NAME} ebank-monolith/helm \
+                                        --namespace ${K8S_NAMESPACE} \
+                                        --create-namespace \
+                                        -f ebank-monolith/helm/${helmValues} \
+                                        --set image.repository=${DOCKER_IMAGE} \
+                                        --set image.tag=${IMAGE_TAG} \
+                                        --atomic \
+                                        --timeout 5m \
+                                        --wait
+                                """
+                            }
                         }
                     }
                 }
@@ -627,31 +681,55 @@ pipeline {
     // Actions post-pipeline
     // ──────────────────────────────────────────────────────────────────────
     post {
+        // always runs first: clean the local Docker image regardless of outcome
         always {
             sh "docker rmi ${DOCKER_IMAGE}:${IMAGE_TAG} || true"
-            cleanWs()
         }
 
         success {
+            script {
+                def duration = currentBuild.durationString.replace(' and counting', '')
+                def msg = "✅ <b>PIPELINE RÉUSSI</b>\n" +
+                          "<b>Projet  :</b> ${APP_NAME}\n" +
+                          "<b>Image   :</b> <code>${DOCKER_IMAGE}:${IMAGE_TAG}</code>\n" +
+                          "<b>Branche :</b> ${env.BRANCH_NAME}\n" +
+                          "<b>Commit  :</b> <code>${env.GIT_COMMIT.take(7)}</code>\n" +
+                          "<b>Build   :</b> #${env.BUILD_NUMBER}\n" +
+                          "<b>Durée   :</b> ${duration}\n" +
+                          "<b>URL     :</b> ${env.BUILD_URL}"
+                telegramSend(env.TELEGRAM_TOKEN_CRED_ID, env.TELEGRAM_CHAT_CRED_ID, msg)
+            }
             echo "✅ Pipeline réussi — Image: ${DOCKER_IMAGE}:${IMAGE_TAG}"
-            // Slack (décommenter après configuration du plugin) :
-            // slackSend channel: '#deployments', color: 'good',
-            //           message: "✅ DEPLOYED: ${APP_NAME} ${IMAGE_TAG} → ${K8S_NAMESPACE}"
         }
 
         failure {
-            echo "❌ Pipeline en échec — déclenchement du rollback..."
+            // 1. Roll back to the last known-good Helm release.
+            //    helm upgrade --atomic already rolls back deploy-time failures;
+            //    this catches post-deploy failures (smoke test, E2E, etc.).
+            echo "❌ Pipeline en échec — rollback Helm vers la release précédente..."
             withCredentials([
                 file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
             ]) {
-                sh """
-                    chmod +x ebank-monolith/jenkins/scripts/rollback.sh
-                    bash ebank-monolith/jenkins/scripts/rollback.sh \
-                        ${APP_NAME} ${K8S_NAMESPACE} || true
-                """
+                sh "helm rollback ${APP_NAME} --namespace ${K8S_NAMESPACE} --wait || true"
             }
-            // slackSend channel: '#deployments', color: 'danger',
-            //           message: "❌ FAILED: ${APP_NAME} build #${env.BUILD_NUMBER}"
+            // 2. Notify team after rollback attempt
+            script {
+                def duration = currentBuild.durationString.replace(' and counting', '')
+                def msg = "❌ <b>PIPELINE EN ÉCHEC</b>\n" +
+                          "<b>Projet  :</b> ${APP_NAME}\n" +
+                          "<b>Branche :</b> ${env.BRANCH_NAME}\n" +
+                          "<b>Commit  :</b> <code>${env.GIT_COMMIT.take(7)}</code>\n" +
+                          "<b>Build   :</b> #${env.BUILD_NUMBER}\n" +
+                          "<b>Durée   :</b> ${duration}\n" +
+                          "<b>Résultat:</b> ${currentBuild.currentResult}\n" +
+                          "<b>Logs    :</b> ${env.BUILD_URL}console"
+                telegramSend(env.TELEGRAM_TOKEN_CRED_ID, env.TELEGRAM_CHAT_CRED_ID, msg)
+            }
+        }
+
+        // cleanup always runs last — workspace is safe to wipe after success/failure
+        cleanup {
+            cleanWs()
         }
     }
 }

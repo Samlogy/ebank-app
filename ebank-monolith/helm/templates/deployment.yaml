@@ -1,0 +1,176 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ebank-monolith.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank-monolith.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ebank-monolith.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1         # one extra pod during rollout — zero downtime
+      maxUnavailable: 0   # never take a pod down before its replacement is ready
+  template:
+    metadata:
+      annotations:
+        # Restart pods when the AppRole secret name changes (e.g. secret rotation).
+        # For content-based rotation, patch the K8s Secret directly; pods will
+        # pick up the new secret-id on the next restart / rolling update.
+        checksum/vault-approle-ref: {{ .Values.vault.approleSecretName | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "ebank-monolith.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "ebank-monolith.serviceAccountName" . }}
+
+      # ── Pod-level security ─────────────────────────────────────────────────
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault   # uses node's default seccomp profile
+
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+
+      # Allow 60 s for in-flight requests to drain before SIGKILL.
+      # Matches the Hikari pool teardown + Spring graceful shutdown window.
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.port }}
+              protocol: TCP
+
+          # ── Vault / Spring environment variables ─────────────────────────
+          # Non-secret values come directly from Helm values.
+          # AppRole credentials come from a pre-existing K8s Secret so they
+          # are never stored in plaintext in the chart or in CI logs.
+          env:
+            # Activates application-{profile}.yaml which contains:
+            #   spring.config.import: "vault://"
+            # triggering Vault KV import at startup.
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.spring.profile | quote }}
+            - name: SERVER_PORT
+              value: {{ .Values.server.port | quote }}
+            # Vault connection — non-secret, defined in environment values files
+            - name: VAULT_HOST
+              value: {{ required "vault.host must be set (e.g. in values-dev.yaml or values-prod.yaml)" .Values.vault.host | quote }}
+            - name: VAULT_PORT
+              value: {{ .Values.vault.port | quote }}
+            - name: VAULT_SCHEME
+              value: {{ .Values.vault.scheme | quote }}
+            # Selects the Vault KV path segment: E1 (prod) or E2 (dev/testing)
+            - name: VAULT_ENV_ID
+              value: {{ .Values.vault.envId | quote }}
+            # AppRole credentials — injected from the K8s Secret.
+            # VAULT_ROLE_ID is semi-public (stable, identifies the app).
+            # VAULT_SECRET_ID is rotated by the pipeline on every deploy.
+            - name: VAULT_ROLE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.vault.approleSecretName }}
+                  key: VAULT_ROLE_ID
+            - name: VAULT_SECRET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.vault.approleSecretName }}
+                  key: VAULT_SECRET_ID
+
+          # ── Resources ────────────────────────────────────────────────────
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+          # ── Liveness probe — restart pod if app is deadlocked ────────────
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+
+          # ── Readiness probe — gate traffic until app is ready ─────────────
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+
+          # ── Startup probe — extra grace on cold start ─────────────────────
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+
+          # ── Graceful shutdown — drain in-flight requests ──────────────────
+          lifecycle:
+            preStop:
+              exec:
+                # Sleep 5 s so the load balancer removes the pod from rotation
+                # before Spring begins shutting down its HTTP listener.
+                command: ["sh", "-c", "sleep 5"]
+
+          # ── Container-level security ──────────────────────────────────────
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          volumeMounts:
+            # Spring Boot's embedded Tomcat writes temp files to /tmp.
+            - name: tmp-dir
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp-dir
+          emptyDir: {}

@@ -1,3 +1,14 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SUPPLEMENTARY — for manual / emergency kubectl deployments only.
+# The standard deployment path is the Helm chart at ebank-monolith/helm/.
+#
+# With Vault integration all runtime config (datasource, JPA, JWT, admin
+# credentials, rate-limits, logging) is loaded from Vault at startup:
+#   secret/e-bank/monolith/<VAULT_ENV_ID>/config
+#
+# This ConfigMap holds only the non-secret, non-Vault env vars the app needs
+# before it can reach Vault: the Spring profile selector and Vault coordinates.
+# ─────────────────────────────────────────────────────────────────────────────
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,27 +17,11 @@ metadata:
   labels:
     app: ebank-monolith
 data:
-  # Spring profile to activate
   SPRING_PROFILES_ACTIVE: "prod"
-
-  # Server
   SERVER_PORT: "8080"
 
-  # PostgreSQL connection (host = K8s service name for Postgres pod)
-  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-service:5432/ebank_dev"
-
-  # HikariCP connection pool
-  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "10"
-  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "5"
-
-  # JPA
-  SPRING_JPA_HIBERNATE_DDL_AUTO: "validate"
-  SPRING_JPA_SHOW_SQL: "false"
-
-  # Actuator (liveness + readiness probes)
-  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info"
-  MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
-
-  # Logging
-  LOGGING_LEVEL_ROOT: "WARN"
-  LOGGING_LEVEL_COM_EBANK: "INFO"
+  # Vault connection — non-secret; tells the app where to fetch all other config.
+  VAULT_HOST: "vault.prod.example.com"   # ← replace with your Vault address
+  VAULT_PORT: "8200"
+  VAULT_SCHEME: "https"
+  VAULT_ENV_ID: "E1"                     # E1 = prod, E2 = dev/testing

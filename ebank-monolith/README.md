@@ -56,37 +56,63 @@ sequenceDiagram
 
 ## Environments
 
-| | **local** | **test** | **prod** |
+Three Spring profiles cover all use cases:
+
+| | **local** | **dev (E2)** | **prod (E1)** |
 |---|---|---|---|
-| Profile | `local` (or default) | *(auto via `@SpringBootTest`)* | `prod` |
-| Database | PostgreSQL `localhost:5432` | H2 in-memory | PostgreSQL (env vars) |
-| DDL | `update` | `create-drop` | `validate` |
+| Spring profile | `local` | `dev` | `prod` |
+| Config source | `application-local.yaml` | Vault `secret/e-bank/monolith/E2/config` | Vault `secret/e-bank/monolith/E1/config` |
+| Vault auth | **none** | AppRole | AppRole |
+| Database | PostgreSQL `localhost:5432` | Shared testing DB | Managed prod DB |
+| DDL | `update` | `update` | `validate` |
 | SQL logs | on | off | off |
-| JWT secret | hardcoded dev key | hardcoded test key | `$JWT_SECRET` env var |
-| How to run | `./mvnw spring-boot:run` | `./mvnw test` | `docker compose up -d` |
+| Rate-limit | 10/min | 20/min | 10/min |
+| Actuator | health, info | health, info | health only |
+| How to run | `docker compose up -d postgres` | pipeline + `VAULT_ENV_ID=E2` | pipeline + `VAULT_ENV_ID=E1` |
+
+`local` is self-contained — no Vault, no coordination overhead. `dev` and `prod` load **all** config from Vault at startup.
+
+Tests (`./mvnw test`) use an H2 in-memory database and activate no profile — no Vault contact at all.
+
+> See [VAULT_CONFIG.md](VAULT_CONFIG.md) for the full technical reference: why Vault, how it wires in, auth strategies, CI/CD integration, and trade-offs.
 
 ---
 
 ## Quick Start
 
-### Docker (recommended)
+### Local profile — no Vault needed
 
 ```bash
-cp .env.example .env          # copy env template
-docker compose up -d --build  # build image + start postgres + app
-docker compose ps             # wait for (healthy) on both containers
+docker compose up -d postgres   # start only PostgreSQL
+
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+# or in Docker:
+# docker compose up -d --build   (uses SPRING_PROFILES_ACTIVE=local in docker-compose.yml)
+
 curl http://localhost:8081/actuator/health
 ```
 
-> Port **8081** is used to avoid conflicts. Change `"8081:8080"` → `"8080:8080"` in
-> `docker-compose.yml` if 8080 is free.
+All config comes from `application-local.yaml`. No Vault, no extra env vars.
 
-### Local (app on JVM, DB in Docker)
+### Dev profile with Vault (local smoke-test)
+
+Use the vault overlay to run the `dev` Spring profile against a local Vault dev server:
 
 ```bash
-docker compose up -d postgres              # start only PostgreSQL
-./mvnw spring-boot:run \
-  -Dspring-boot.run.profiles=local         # run app with local profile
+docker compose -f docker-compose.yml -f docker-compose.vault.yml up -d --build
+
+docker compose ps             # wait for (healthy) on postgres and app
+curl http://localhost:8081/actuator/health
+# Vault UI: http://localhost:8200  (token: root)
+```
+
+Vault is seeded automatically with E2-compatible local values. The app uses the `dev` profile and reads all config from `secret/e-bank/monolith/E2/config`.
+
+### Tests
+
+```bash
+./mvnw test                                # H2 in-memory, no profile, no Vault
+./mvnw test -Dtest=AuthControllerTest      # single class
 ```
 
 ### Tests
@@ -138,28 +164,78 @@ src/main/
 │   ├── account/         # create · list · get
 │   └── transaction/     # transfer · history
 └── resources/
-    ├── application.yaml          # base config (env-var overrideable defaults)
-    ├── application-local.yaml    # local dev (verbose SQL, localhost DB)
-    └── application-prod.yaml     # production (validate DDL, quiet logging)
+    ├── application.yaml          # base: static constants, Vault disabled
+    ├── application-local.yaml    # local dev: pure YAML, no Vault
+    ├── application-dev.yaml      # dev/testing: Vault AppRole → E2
+    └── application-prod.yaml     # production:  Vault AppRole → E1
 
 src/test/
 ├── java/com/ebank/
 │   ├── auth/controller/AuthControllerTest.java
 │   └── auth/service/AuthServiceTest.java
 └── resources/
-    └── application.yaml          # H2 in-memory, fixed test JWT secret
+    └── application.yaml          # H2 in-memory, no Vault needed
+
+vault/
+├── init.sh                       # seeds E2 on local stack start, creates AppRole
+├── policy/ebank-monolith.hcl     # read-only policy for secret/e-bank/monolith/+/config
+└── seeds/
+    ├── E1.json                    # prod config template  (fill CHANGE_ME values)
+    └── E2.json                    # dev/testing template  (fill CHANGE_ME values)
+
+helm/                             # Helm chart — standard deployment path for K8s
+├── Chart.yaml
+├── values.yaml                   # defaults
+├── values-dev.yaml               # E2 overrides  (1 replica, relaxed resources)
+├── values-prod.yaml              # E1 overrides  (3 replicas, TLS, hard anti-affinity)
+└── templates/
+    ├── _helpers.tpl
+    ├── deployment.yaml           # Vault AppRole env vars, read-only FS, seccomp
+    ├── service.yaml              # ClusterIP
+    ├── ingress.yaml
+    ├── hpa.yaml                  # CPU + memory autoscaling
+    ├── pdb.yaml                  # PodDisruptionBudget
+    └── networkpolicy.yaml        # deny-all + Vault/PostgreSQL/DNS egress
+
+jenkins/k8s/                      # Raw kubectl manifests (emergency / reference only)
 ```
 
 ---
 
-### Production deployment
+### Deploying to dev (E2) or prod (E1) — Kubernetes via Helm
+
+The standard deployment path is the Helm chart. The Jenkins pipeline runs these steps automatically on every push; the commands below show what it does.
 
 ```bash
-# Build and push image
-docker build -t your-registry/ebank-monolith:1.0.0 .
+# 1. Build and push the image
+docker build -t your-registry/ebank-monolith:1.0.0 ebank-monolith/
 docker push your-registry/ebank-monolith:1.0.0
 
-# On the server
-cp .env.prod.example .env         # fill in real secrets
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# 2. Seed Vault (once per environment — update later with vault kv patch)
+VAULT_ADDR=https://vault.example.com VAULT_TOKEN=<admin-token>
+vault kv put secret/e-bank/monolith/E2/config @vault/seeds/E2.json   # dev
+vault kv put secret/e-bank/monolith/E1/config @vault/seeds/E1.json   # prod
+
+# 3. Get AppRole credentials from Vault
+VAULT_ROLE_ID=$(vault read -field=role_id auth/approle/role/ebank-monolith/role-id)
+VAULT_SECRET_ID=$(vault write -field=secret_id -f auth/approle/role/ebank-monolith/secret-id)
+
+# 4. Create the K8s Secret (the ONLY secret the cluster stores)
+kubectl create secret generic ebank-vault-approle \
+  --from-literal=VAULT_ROLE_ID=${VAULT_ROLE_ID} \
+  --from-literal=VAULT_SECRET_ID=${VAULT_SECRET_ID} \
+  --namespace ebank --dry-run=client -o yaml | kubectl apply -f -
+
+# 5. Deploy with Helm (--atomic auto-rolls back if pods don't become Ready)
+helm upgrade --install ebank-monolith ebank-monolith/helm \
+  --namespace ebank --create-namespace \
+  -f ebank-monolith/helm/values-dev.yaml \    # or values-prod.yaml
+  --set image.repository=your-registry/ebank-monolith \
+  --set image.tag=1.0.0 \
+  --atomic --timeout 5m --wait
+
+# Rollback to previous release if needed
+helm rollback ebank-monolith --namespace ebank --wait
 ```
+
+> See [VAULT_CONFIG.md § 11](VAULT_CONFIG.md#11-kubernetes-deployment-helm) for the full Helm chart reference, security hardening details, and the path to Vault Kubernetes auth.

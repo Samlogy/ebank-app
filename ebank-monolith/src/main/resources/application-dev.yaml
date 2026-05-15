@@ -1,18 +1,18 @@
-# Profile: prod
-# Activated by: SPRING_PROFILES_ACTIVE=prod  (CI/CD pipeline for production deployments)
+# Profile: dev
+# Activated by: SPRING_PROFILES_ACTIVE=dev  (CI/CD pipeline for dev/testing deployments)
 #
-# All config (datasource, jwt, admin, logging, etc.) is loaded from Vault at:
-#   secret/e-bank/monolith/${VAULT_ENV_ID:E1}/config
+# All config (datasource, jwt, logging, etc.) is loaded from Vault at:
+#   secret/e-bank/monolith/${VAULT_ENV_ID:E2}/config
 #
 # Required environment variables:
 #   VAULT_HOST       — Vault server hostname
 #   VAULT_ROLE_ID    — AppRole role-id (semi-public, identifies the app)
-#   VAULT_SECRET_ID  — AppRole secret-id (rotate regularly, inject at deploy time)
+#   VAULT_SECRET_ID  — AppRole secret-id (secret, rotate at each deploy)
 #
 # Optional:
 #   VAULT_PORT       — defaults to 8200
 #   VAULT_SCHEME     — defaults to https
-#   VAULT_ENV_ID     — defaults to E1
+#   VAULT_ENV_ID     — defaults to E2
 
 spring:
   config:
@@ -25,12 +25,12 @@ spring:
       scheme: ${VAULT_SCHEME:https}
       authentication: APPROLE
       app-role:
-        role-id: ${VAULT_ROLE_ID}
-        secret-id: ${VAULT_SECRET_ID}
+        role-id: ${VAULT_ROLE_ID:}
+        secret-id: ${VAULT_SECRET_ID:}
       kv:
         enabled: true
         backend: secret
-        default-context: "e-bank/monolith/${VAULT_ENV_ID:E1}/config"
+        default-context: "e-bank/monolith/${VAULT_ENV_ID:E2}/config"
         backend-version: 2
       connection-timeout: 5000
       read-timeout: 15000
