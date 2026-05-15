@@ -486,18 +486,3 @@ public class GlobalExceptionHandler {
 - ✅ README explains how to run & extend
 
 ---
-
-## Next: Implementation Roadmap
-
-1. **Create project skeleton** (pom.xml, Maven structure)
-2. **Build common module** (config, security, exceptions)
-3. **Build auth module** (register, login)
-4. **Build account module** (CRUD)
-5. **Build transaction module** (transfer, balance)
-6. **Add tests** (unit + integration)
-7. **Docker setup** (Dockerfile, docker-compose)
-8. **Documentation** (README, GETTING_STARTED)
-
----
-
-**Ready to start Phase 1? I'll guide you step-by-step through implementation.**
