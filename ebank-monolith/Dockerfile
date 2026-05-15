@@ -1,5 +1,5 @@
 # ── Stage 1: Resolve dependencies (cached as long as pom.xml unchanged) ──────
-FROM maven:3.9.6-eclipse-temurin-17 AS deps
+FROM maven:3.9.9-eclipse-temurin-21 AS deps
 WORKDIR /app
 COPY pom.xml .
 RUN mvn -B dependency:go-offline -q
@@ -10,7 +10,7 @@ COPY src ./src
 RUN mvn -B clean package -DskipTests -q
 
 # ── Stage 3: Minimal runtime image ───────────────────────────────────────────
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:21-jre-alpine
 RUN addgroup -S ebank && adduser -S ebank -G ebank
 WORKDIR /app
 COPY --from=builder /app/target/ebank-monolith-*.jar app.jar

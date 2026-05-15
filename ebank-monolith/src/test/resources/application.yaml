@@ -8,18 +8,28 @@ spring:
     driver-class-name: org.h2.Driver
 
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
     show-sql: false
-    # Force H2 dialect so Hibernate doesn't try to connect as PostgreSQL
-    database-platform: org.hibernate.dialect.H2Dialect
 
   flyway:
     enabled: true
-    # Placeholders clash with H2's own ${} syntax — disable them in SQL scripts
+    # Disable placeholder replacement so ${} in SQL is kept as-is
     placeholder-replacement: false
+
+  threads:
+    virtual:
+      enabled: false   # virtual threads off in tests to keep output deterministic
 
   # Vault is never used in tests
   cloud:
     vault:
       enabled: false
+
+# Disable SpringDoc scanning in tests — avoids Spring Framework 7 API surface issues
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
