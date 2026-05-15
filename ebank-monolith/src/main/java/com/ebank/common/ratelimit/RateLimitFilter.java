@@ -2,9 +2,6 @@ package com.ebank.common.ratelimit;
 
 import com.ebank.common.dto.ApiResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.bucket4j.Bandwidth;
-import io.github.bucket4j.Bucket;
-import io.github.bucket4j.Refill;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -18,17 +15,16 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Token-bucket rate limiter scoped to POST /api/v1/auth/login.
- * One bucket per source IP; limits are configurable via rate-limiting.login.* properties.
- * In-memory buckets: suitable for a single-node monolith. For multi-node deployments,
- * replace ConcurrentHashMap with a distributed backend (Bucket4j + Redis/Hazelcast).
+ * Fixed-window rate limiter scoped to POST /api/v1/auth/login.
+ * One counter per source IP; window and capacity are configurable via
+ * rate-limiting.login.* properties. No external library required.
+ * For multi-node deployments replace with a distributed counter (Redis INCR).
  */
 @Component
-@Order(Integer.MIN_VALUE + 1)   // just after RequestLoggingFilter (MIN_VALUE)
+@Order(Integer.MIN_VALUE + 1)
 @Slf4j
 public class RateLimitFilter extends OncePerRequestFilter {
 
@@ -40,7 +36,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
     @Value("${rate-limiting.login.refill-minutes:1}")
     private int refillMinutes;
 
-    private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    // long[0] = request count in current window, long[1] = window start epoch ms
+    private final ConcurrentHashMap<String, long[]> windows = new ConcurrentHashMap<>();
 
     public RateLimitFilter(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -57,9 +54,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
                                     @NonNull HttpServletResponse response,
                                     @NonNull FilterChain chain) throws ServletException, IOException {
         String ip = resolveClientIp(request);
-        Bucket bucket = buckets.computeIfAbsent(ip, k -> buildBucket());
 
-        if (bucket.tryConsume(1)) {
+        if (tryConsume(ip)) {
             chain.doFilter(request, response);
         } else {
             log.warn("Rate limit exceeded: ip={}", ip);
@@ -71,10 +67,18 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
     }
 
-    private Bucket buildBucket() {
-        Bandwidth limit = Bandwidth.classic(capacity,
-                Refill.greedy(capacity, Duration.ofMinutes(refillMinutes)));
-        return Bucket.builder().addLimit(limit).build();
+    private boolean tryConsume(String ip) {
+        long now = System.currentTimeMillis();
+        long windowMs = (long) refillMinutes * 60_000L;
+
+        long[] window = windows.compute(ip, (k, v) -> {
+            if (v == null || now - v[1] >= windowMs) {
+                return new long[]{1L, now};
+            }
+            return new long[]{v[0] + 1L, v[1]};
+        });
+
+        return window[0] <= capacity;
     }
 
     private String resolveClientIp(HttpServletRequest request) {

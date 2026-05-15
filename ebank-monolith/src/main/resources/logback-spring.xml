@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
 
+  <!-- Registers %clr and other Spring Boot converters -->
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
   <!--
     Human-readable console — used by local/default and test profiles.
     Pattern includes correlationId and userId from MDC when present.
