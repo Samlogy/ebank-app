@@ -6,22 +6,25 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.lang.NonNull;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Fixed-window rate limiter scoped to POST /api/v1/auth/login.
- * One counter per source IP; window and capacity are configurable via
- * rate-limiting.login.* properties. No external library required.
- * For multi-node deployments replace with a distributed counter (Redis INCR).
+ * Fixed-window rate limiter for POST /api/v1/auth/login.
+ * Uses Redis INCR+EXPIRE when Redis is available (multi-node safe),
+ * falls back to in-process ConcurrentHashMap for local/test environments.
  */
 @Component
 @Order(Integer.MIN_VALUE + 1)
@@ -30,17 +33,22 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final ObjectMapper objectMapper;
 
+    @Nullable
+    private final StringRedisTemplate redisTemplate;
+
     @Value("${rate-limiting.login.capacity:10}")
     private int capacity;
 
     @Value("${rate-limiting.login.refill-minutes:1}")
     private int refillMinutes;
 
-    // long[0] = request count in current window, long[1] = window start epoch ms
-    private final ConcurrentHashMap<String, long[]> windows = new ConcurrentHashMap<>();
+    // Fallback: local window per source IP — not shared across nodes
+    private final ConcurrentHashMap<String, long[]> localWindows = new ConcurrentHashMap<>();
 
-    public RateLimitFilter(ObjectMapper objectMapper) {
+    public RateLimitFilter(ObjectMapper objectMapper,
+                           @Autowired(required = false) StringRedisTemplate redisTemplate) {
         this.objectMapper = objectMapper;
+        this.redisTemplate = redisTemplate;
     }
 
     @Override
@@ -68,10 +76,33 @@ public class RateLimitFilter extends OncePerRequestFilter {
     }
 
     private boolean tryConsume(String ip) {
+        if (redisTemplate != null) {
+            return tryConsumeRedis(ip);
+        }
+        return tryConsumeLocal(ip);
+    }
+
+    private boolean tryConsumeRedis(String ip) {
+        String key = "ebank:monolith:rate-limit:login:" + ip;
+        Duration window = Duration.ofMinutes(refillMinutes);
+        try {
+            Long count = redisTemplate.opsForValue().increment(key);
+            if (count != null && count == 1L) {
+                // Set expiry only on first increment to avoid resetting the window on each request
+                redisTemplate.expire(key, window);
+            }
+            return count != null && count <= capacity;
+        } catch (Exception e) {
+            log.warn("Redis rate-limit error, falling back to local counter: {}", e.getMessage());
+            return tryConsumeLocal(ip);
+        }
+    }
+
+    private boolean tryConsumeLocal(String ip) {
         long now = System.currentTimeMillis();
         long windowMs = (long) refillMinutes * 60_000L;
 
-        long[] window = windows.compute(ip, (k, v) -> {
+        long[] window = localWindows.compute(ip, (k, v) -> {
             if (v == null || now - v[1] >= windowMs) {
                 return new long[]{1L, now};
             }
