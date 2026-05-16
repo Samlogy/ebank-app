@@ -451,8 +451,8 @@ graph LR
         V7["management.endpoints.include"]
     end
 
-    YAML -. "framework constants\nnever changes" .- X1[" "]
-    VAULT -. "everything that differs\nbetween environments" .- X2[" "]
+    YAML -. "framework constants never changes" .- X1[" "]
+    VAULT -. "everything that differs between environments" .- X2[" "]
 ```
 
 ---
@@ -631,71 +631,71 @@ graph TD
 ```mermaid
 flowchart TD
     PUSH(["🔀 Git Push / Pull Request"])
-    CHECKOUT["📥 Checkout\nclone + env setup"]
+    CHECKOUT["📥 Checkout clone + env setup"]
 
     PUSH --> CHECKOUT
 
     subgraph CI["🔵 CONTINUOUS INTEGRATION"]
         direction TB
 
-        CHECKOUT --> VALID["🔍 CI-1 · Validation\nMaven Enforcer · Checkstyle\nJava 17+ · style rules"]
+        CHECKOUT --> VALID["🔍 CI-1 · Validation Maven Enforcer · Checkstyle Java 17+ · style rules"]
 
-        VALID --> BUILD["🔨 CI-2 · Build\nmvn clean package -DskipTests\nJAR → target/"]
+        VALID --> BUILD["🔨 CI-2 · Build mvn clean package -DskipTests JAR → target/"]
 
-        BUILD --> UNIT["🧪 CI-3 · Unit Tests\nJUnit 5 · Mockito · H2"]
+        BUILD --> UNIT["🧪 CI-3 · Unit Tests JUnit 5 · Mockito · H2"]
 
-        UNIT --> INTEG["🔗 CI-4 · Integration Tests\nSpringBootTest · MockMvc · H2"]
+        UNIT --> INTEG["🔗 CI-4 · Integration Tests SpringBootTest · MockMvc · H2"]
 
         INTEG --> STATIC_PAR
 
         subgraph STATIC_PAR["⚡ Parallel — Static Analysis"]
             direction LR
-            OWASP["🛡️ CI-5a · OWASP\nDependency-Check\nCVSS ≥ 7 → FAIL\nscans Maven deps"]
-            SBOM["📋 CI-5b · SBOM\nCycloneDX\nbom.json · bom.xml\nlicenses + hashes"]
+            OWASP["🛡️ CI-5a · OWASP Dependency-Check CVSS ≥ 7 → FAIL scans Maven deps"]
+            SBOM["📋 CI-5b · SBOM CycloneDX bom.json · bom.xml licenses + hashes"]
         end
 
-        STATIC_PAR --> SONAR["📊 CI-6 · SonarQube\nbugs · smells · coverage\nvulnerabilities · duplication"]
+        STATIC_PAR --> SONAR["📊 CI-6 · SonarQube bugs · smells · coverage vulnerabilities · duplication"]
 
-        SONAR --> GATE{"✅ CI-7 · Quality Gate\nOK / ERROR"}
+        SONAR --> GATE{"✅ CI-7 · Quality Gate OK / ERROR"}
 
-        GATE -->|"✅ Pass"| DBUILD["🐳 CI-8 · Docker Build\nMulti-stage · JRE Alpine\ntag: branch-sha7-buildNum"]
+        GATE -->|"✅ Pass"| DBUILD["🐳 CI-8 · Docker Build Multi-stage · JRE Alpine tag: branch-sha7-buildNum"]
         GATE -->|"❌ Fail"| ABORT(["🚫 Pipeline Stopped"])
 
         DBUILD --> IMAGE_PAR
 
         subgraph IMAGE_PAR["⚡ Parallel — Image Security"]
             direction LR
-            TRIVY["🔍 CI-9a · Trivy\nCVE scan on image\nOS packages + JARs\nHIGH/CRITICAL → FAIL"]
-            HADOLINT["📝 CI-9b · Hadolint\nDockerfile lint\nbest practices"]
-            CHECKOV["🏗️ CI-9c · Checkov\nK8s manifests IaC\nCIS Benchmarks"]
+            TRIVY["🔍 CI-9a · Trivy CVE scan on image OS packages + JARs HIGH/CRITICAL → FAIL"]
+            HADOLINT["📝 CI-9b · Hadolint Dockerfile lint best practices"]
+            CHECKOV["🏗️ CI-9c · Checkov K8s manifests IaC CIS Benchmarks"]
         end
 
-        IMAGE_PAR --> PUSH_IMG["📤 CI-10 · Push Image\nDocker Hub\nbranch-sha-num\n+ latest if main"]
+        IMAGE_PAR --> PUSH_IMG["📤 CI-10 · Push Image Docker Hub branch-sha-num + latest if main"]
     end
 
     subgraph CD["🟢 CONTINUOUS DEPLOYMENT"]
         direction TB
 
-        PUSH_IMG --> DEPLOY["☸️ CD-1 · Deploy K8s\nHelm upgrade --atomic\nRolling Update\nmaxSurge=1 · maxUnavailable=0"]
+        PUSH_IMG --> DEPLOY["☸️ CD-1 · Deploy K8s Helm upgrade --atomic Rolling Update maxSurge=1 · maxUnavailable=0"]
 
-        DEPLOY --> SMOKE["💨 CD-2 · Smoke Test\n/actuator/health → UP\n60s timeout · retry every 5s"]
+        DEPLOY --> SMOKE["💨 CD-2 · Smoke Test /actuator/health → UP 60s timeout · retry every 5s"]
 
         SMOKE --> POST_PAR
 
         subgraph POST_PAR["⚡ Parallel — Post-Deploy"]
             direction LR
-            ZAP["🔐 CD-3a · OWASP ZAP\nDAST — passive API scan\nreads OpenAPI /v3/api-docs\nHTTP headers · auth · CORS"]
-            E2E["🌐 CD-3b · Newman E2E\nRegister→Login\n→Account→Transfer\nJUnit XML report"]
+            ZAP["🔐 CD-3a · OWASP ZAP DAST — passive API scan reads OpenAPI /v3/api-docs HTTP headers · auth · CORS"]
+            E2E["🌐 CD-3b · Newman E2E Register→Login →Account→Transfer JUnit XML report"]
         end
 
-        POST_PAR --> ACCESS["♿ CD-4 · Pa11y\nWCAG 2.1 AA\nSwagger UI accessibility"]
+        POST_PAR --> ACCESS["♿ CD-4 · Pa11y WCAG 2.1 AA Swagger UI accessibility"]
 
-        ACCESS --> GREEN["🌱 CD-5 · Green IT\nEcoIndex score A–G\nkubectl top CPU/RAM"]
+        ACCESS --> GREEN["🌱 CD-5 · Green IT EcoIndex score A–G kubectl top CPU/RAM"]
 
         GREEN --> SUCCESS(["✅ Deploy Validated"])
     end
 
-    SMOKE -->|"❌ Fail"| ROLLBACK["🔄 Auto Rollback\nkubectl rollout undo\nrevert to revision N-1"]
+    SMOKE -->|"❌ Fail"| ROLLBACK["🔄 Auto Rollback kubectl rollout undo revert to revision N-1"]
     ROLLBACK --> NOTIF(["📧 Failure Notification"])
     ABORT --> NOTIF
 
@@ -763,13 +763,13 @@ graph TD
         direction LR
         D1["Dev pushes code"] --> CI1["CI builds image"]
         CI1 --> JEN["Jenkins kubectl apply → Cluster"]
-        JEN -.->|"no history\ndrift possible\nCI needs cluster creds"| PROB["⚠️ Problems"]
+        JEN -.->|"no history drift possible CI needs cluster creds"| PROB["⚠️ Problems"]
     end
 
     subgraph PULL["✅ Pull-based (GitOps)"]
         direction LR
         D2["Dev pushes code"] --> CI2["CI builds image"]
-        CI2 -->|"commits tag to Git"| GIT2["Git repo\nenvironments/dev/values.yaml"]
+        CI2 -->|"commits tag to Git"| GIT2["Git repo environments/dev/values.yaml"]
         GIT2 -->|"Argo CD polls/webhook"| ARGO["Argo CD detects change"]
         ARGO -->|"pulls + applies"| CLU["Cluster"]
     end
@@ -792,23 +792,23 @@ flowchart TD
     end
 
     subgraph GHA["⚡ GitHub Actions"]
-        CI_WF["ci.yml\nPR gate: test · lint · trivy"]
-        PROMOTE["gitops-promote.yml\nOn push: build + update tag"]
+        CI_WF["ci.yml PR gate: test · lint · trivy"]
+        PROMOTE["gitops-promote.yml On push: build + update tag"]
     end
 
     subgraph HELM_FILES["📁 Helm environments/ (in Git)"]
-        DEV_VAL["environments/dev/values.yaml\nimage.tag: abc1234"]
-        PROD_VAL["environments/prod/values.yaml\nimage.tag: def5678"]
+        DEV_VAL["environments/dev/values.yaml image.tag: abc1234"]
+        PROD_VAL["environments/prod/values.yaml image.tag: def5678"]
     end
 
     subgraph ARGO["🔄 Argo CD (in K8s)"]
-        APP_DEV["ebank-monolith-dev\nnamespace: ebank-dev\nbranch: develop\nauto-sync ✓"]
-        APP_PROD["ebank-monolith-prod\nnamespace: ebank-prod\nbranch: main\nauto-sync ✓"]
+        APP_DEV["ebank-monolith-dev namespace: ebank-dev branch: develop auto-sync ✓"]
+        APP_PROD["ebank-monolith-prod namespace: ebank-prod branch: main auto-sync ✓"]
     end
 
     subgraph K8S["☸️ Kubernetes"]
-        NS_DEV["ebank-dev\nSpring: dev · Vault: E2"]
-        NS_PROD["ebank-prod\nSpring: prod · Vault: E1"]
+        NS_DEV["ebank-dev Spring: dev · Vault: E2"]
+        NS_PROD["ebank-prod Spring: prod · Vault: E1"]
     end
 
     GH --> GHA
@@ -879,14 +879,14 @@ gitGraph
 ```mermaid
 graph TD
     subgraph NS["☸️ Namespace: ebank"]
-        ING["🌐 Ingress\nebank.local → /"]
-        SVC["🔌 Service (ClusterIP)\nport 8080"]
-        DEP["📦 Deployment\nreplicas: 1 (dev) · 3 (prod)\nrollingUpdate: maxSurge=1 · maxUnavailable=0"]
-        HPA["📈 HPA\nCPU 70% · mem 80%\n1–5 pods (dev) · 2–10 pods (prod)"]
-        PDB["🛡️ PodDisruptionBudget\nminAvailable: 2 (prod)"]
-        NP["🔒 NetworkPolicy\ndeny-all + allow Vault/PG/DNS"]
-        SA["👤 ServiceAccount\nno token auto-mount"]
-        SEC["🔑 Secret: ebank-vault-approle\nVAULT_ROLE_ID · VAULT_SECRET_ID"]
+        ING["🌐 Ingress ebank.local → /"]
+        SVC["🔌 Service (ClusterIP) port 8080"]
+        DEP["📦 Deployment replicas: 1 (dev) · 3 (prod) rollingUpdate: maxSurge=1 · maxUnavailable=0"]
+        HPA["📈 HPA CPU 70% · mem 80% 1–5 pods (dev) · 2–10 pods (prod)"]
+        PDB["🛡️ PodDisruptionBudget minAvailable: 2 (prod)"]
+        NP["🔒 NetworkPolicy deny-all + allow Vault/PG/DNS"]
+        SA["👤 ServiceAccount no token auto-mount"]
+        SEC["🔑 Secret: ebank-vault-approle VAULT_ROLE_ID · VAULT_SECRET_ID"]
     end
 
     ING --> SVC --> DEP
@@ -901,11 +901,11 @@ graph TD
 
 ```mermaid
 graph TD
-    V1["📄 values.yaml\nChart defaults"]
-    V2["📄 values-dev.yaml\n1 replica\nrelaxed resources\nVault host: vault-dev"]
-    V3["📄 values-prod.yaml\n3 replicas\nTLS enabled\nhard anti-affinity\nVault host: vault-prod"]
-    V4["📄 environments/dev/values.yaml\nimage.tag: abc1234\n(written by CI)"]
-    V5["📄 environments/prod/values.yaml\nimage.tag: def5678\n(written by CI)"]
+    V1["📄 values.yaml Chart defaults"]
+    V2["📄 values-dev.yaml 1 replica relaxed resources Vault host: vault-dev"]
+    V3["📄 values-prod.yaml 3 replicas TLS enabled hard anti-affinity Vault host: vault-prod"]
+    V4["📄 environments/dev/values.yaml image.tag: abc1234 (written by CI)"]
+    V5["📄 environments/prod/values.yaml image.tag: def5678 (written by CI)"]
 
     V1 -->|"overridden by"| V2
     V1 -->|"overridden by"| V3
@@ -926,13 +926,13 @@ graph TD
 ```mermaid
 graph LR
     POD["🐳 Pod"]
-    POD --> R1["runAsUser: 1000\nrunAsNonRoot: true"]
-    POD --> R2["readOnlyRootFilesystem: true\n/tmp via emptyDir"]
+    POD --> R1["runAsUser: 1000 runAsNonRoot: true"]
+    POD --> R2["readOnlyRootFilesystem: true /tmp via emptyDir"]
     POD --> R3["capabilities.drop: ALL"]
     POD --> R4["seccompProfile: RuntimeDefault"]
     POD --> R5["automountServiceAccountToken: false"]
-    POD --> R6["NetworkPolicy: deny-all\n+ allow Vault, PG, DNS only"]
-    POD --> R7["terminationGracePeriodSeconds: 60\npreStop sleep for graceful drain"]
+    POD --> R6["NetworkPolicy: deny-all + allow Vault, PG, DNS only"]
+    POD --> R7["terminationGracePeriodSeconds: 60 preStop sleep for graceful drain"]
 ```
 
 ### Vault K8s Auth (future evolution)
@@ -940,7 +940,7 @@ graph LR
 ```mermaid
 graph LR
     subgraph NOW["Current: AppRole"]
-        SEC["K8s Secret\nebank-vault-approle"]
+        SEC["K8s Secret ebank-vault-approle"]
         APP1["Spring Boot Pod"]
         VLT1["Vault"]
         SEC -->|"env vars"| APP1
@@ -948,7 +948,7 @@ graph LR
     end
 
     subgraph FUTURE["Future: K8s Auth (no secrets needed)"]
-        SA["Service Account Token\n(auto-mounted by K8s)"]
+        SA["Service Account Token (auto-mounted by K8s)"]
         APP2["Spring Boot Pod"]
         K8SAPI["K8s API"]
         VLT2["Vault"]
@@ -974,23 +974,23 @@ graph TD
         BROWSER["🌐 Browser"]
 
         subgraph DOCKER_INFRA["🐋 docker-compose.infra.yml (network: cicd-net)"]
-            JENKINS["🤖 ebank-jenkins\n:8090\nCustom image with:\nTrivy · Hadolint · Checkov\nNewman · Pa11y · envsubst"]
-            SONAR["📊 ebank-sonarqube\n:9000"]
-            SONARDB["🐘 ebank-sonarqube-db\npostgres:15-alpine"]
+            JENKINS["🤖 ebank-jenkins :8090 Custom image with: Trivy · Hadolint · Checkov Newman · Pa11y · envsubst"]
+            SONAR["📊 ebank-sonarqube :9000"]
+            SONARDB["🐘 ebank-sonarqube-db postgres:15-alpine"]
             JENKINS -->|"analysis reports"| SONAR
             SONAR --- SONARDB
-            JENKINS -->|"Docker socket\n/var/run/docker.sock"| DSOCK["🐳 Docker Engine"]
+            JENKINS -->|"Docker socket /var/run/docker.sock"| DSOCK["🐳 Docker Engine"]
         end
 
         subgraph MINIKUBE["☸️ Minikube (driver=docker)"]
-            K8S["K8s cluster\nnamespace: ebank\nIngress: ebank.local"]
+            K8S["K8s cluster namespace: ebank Ingress: ebank.local"]
         end
 
         BROWSER -->|":8090 Jenkins UI"| JENKINS
         BROWSER -->|":9000 SonarQube UI"| SONAR
         BROWSER -->|"ebank.local"| K8S
         JENKINS -->|"kubectl deploy"| K8S
-        DSOCK -->|"builds images\npushes to Docker Hub"| DHB["☁️ Docker Hub"]
+        DSOCK -->|"builds images pushes to Docker Hub"| DHB["☁️ Docker Hub"]
     end
 ```
 
@@ -1044,20 +1044,20 @@ flowchart TD
 
     Q1 -->|"App won't start"| A1["Check docker logs ebank_app"]
     A1 --> A2{"Error type?"}
-    A2 -->|"WeakKeyException"| A3["JWT_SECRET < 64 bytes\nFix: openssl rand -hex 64"]
-    A2 -->|"Connection refused"| A4["PostgreSQL not ready\nCheck: docker compose ps"]
-    A2 -->|"Could not resolve VAULT_HOST"| A5["dev/prod profile active\nbut Vault env vars missing"]
+    A2 -->|"WeakKeyException"| A3["JWT_SECRET < 64 bytes Fix: openssl rand -hex 64"]
+    A2 -->|"Connection refused"| A4["PostgreSQL not ready Check: docker compose ps"]
+    A2 -->|"Could not resolve VAULT_HOST"| A5["dev/prod profile active but Vault env vars missing"]
 
     Q1 -->|"CI stage fails"| B1{"Which stage?"}
-    B1 -->|"OWASP slow (>30min)"| B2["Normal on first run\nAdd NVD API key credential"]
-    B1 -->|"Quality Gate timeout"| B3["Increase timeout to 10min\nor check SonarQube is UP"]
-    B1 -->|"Docker permission denied"| B4["groupmod -g $(stat -c %g /var/run/docker.sock) docker\ndocker restart ebank-jenkins"]
-    B1 -->|"kubectl conn refused"| B5["Regenerate kubeconfig with Docker bridge IP\nnot 127.0.0.1"]
+    B1 -->|"OWASP slow (>30min)"| B2["Normal on first run Add NVD API key credential"]
+    B1 -->|"Quality Gate timeout"| B3["Increase timeout to 10min or check SonarQube is UP"]
+    B1 -->|"Docker permission denied"| B4["groupmod -g $(stat -c %g /var/run/docker.sock) docker docker restart ebank-jenkins"]
+    B1 -->|"kubectl conn refused"| B5["Regenerate kubeconfig with Docker bridge IP not 127.0.0.1"]
 
     Q1 -->|"K8s deploy fails"| C1{"What kind?"}
-    C1 -->|"Vault 403"| C2["vault token capabilities\nsecret/data/e-bank/monolith/E1/config\nExpected: read"]
-    C1 -->|"Pods not Ready"| C3["kubectl describe pod -n ebank\nkubectl logs -n ebank -l app=ebank-monolith"]
-    C1 -->|"Argo CD Degraded"| C4["argocd app get ebank-monolith-prod --show-operation\nCheck sync window (no auto-sync Mon-Fri 8-18h)"]
+    C1 -->|"Vault 403"| C2["vault token capabilities secret/data/e-bank/monolith/E1/config Expected: read"]
+    C1 -->|"Pods not Ready"| C3["kubectl describe pod -n ebank kubectl logs -n ebank -l app=ebank-monolith"]
+    C1 -->|"Argo CD Degraded"| C4["argocd app get ebank-monolith-prod --show-operation Check sync window (no auto-sync Mon-Fri 8-18h)"]
 
     style A3 fill:#FDEDEC,stroke:#E74C3C
     style A4 fill:#FDEDEC,stroke:#E74C3C

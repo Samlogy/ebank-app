@@ -16,9 +16,9 @@ graph TD
     P1 & P2 -->|JDBC| PG[(PostgreSQL)]
     P1 & P2 -->|Redis protocol| RD[(Redis)]
 
-    HPA["HPA\nCPU 70% / Mem 80%"] -. scales .-> P1 & P2
-    PDB["PDB\nminAvailable: 1"]    -. guards .-> P1 & P2
-    NP["NetworkPolicy\ndeny-all + selective egress"] -. isolates .-> P1 & P2
+    HPA["HPA CPU 70% / Mem 80%"] -. scales .-> P1 & P2
+    PDB["PDB minAvailable: 1"]    -. guards .-> P1 & P2
+    NP["NetworkPolicy deny-all + selective egress"] -. isolates .-> P1 & P2
 ```
 
 ---
@@ -71,8 +71,8 @@ seccompProfile: RuntimeDefault — node's default syscall filter
 
 ```mermaid
 graph LR
-    Metrics["Metrics Server\n(CPU + Memory)"] --> HPA
-    HPA -->|scale up/down| Deploy["Deployment\n2 – 5 pods"]
+    Metrics["Metrics Server (CPU + Memory)"] --> HPA
+    HPA -->|scale up/down| Deploy["Deployment 2 – 5 pods"]
 ```
 
 | Threshold | Value | Reasoning |

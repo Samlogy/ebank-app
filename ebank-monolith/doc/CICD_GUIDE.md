@@ -64,71 +64,71 @@
 ```mermaid
 flowchart TD
     PUSH(["🔀 Git Push / Pull Request"])
-    CHECKOUT["📥 Checkout\nclone + env setup"]
+    CHECKOUT["📥 Checkout clone + env setup"]
 
     PUSH --> CHECKOUT
 
     subgraph CI ["🔵 CONTINUOUS INTEGRATION"]
         direction TB
 
-        CHECKOUT --> VALID["🔍 CI-1 · Validation Conformité\nMaven Enforcer · Checkstyle\nconvergence dépendances · style code"]
+        CHECKOUT --> VALID["🔍 CI-1 · Validation Conformité Maven Enforcer · Checkstyle convergence dépendances · style code"]
 
-        VALID --> BUILD["🔨 CI-2 · Build\nmvn clean package -DskipTests\nJAR → target/"]
+        VALID --> BUILD["🔨 CI-2 · Build mvn clean package -DskipTests JAR → target/"]
 
-        BUILD --> UNIT["🧪 CI-3 · Tests Unitaires\nJUnit 5 · Mockito · H2\ntarget/surefire-reports/"]
+        BUILD --> UNIT["🧪 CI-3 · Tests Unitaires JUnit 5 · Mockito · H2 target/surefire-reports/"]
 
-        UNIT --> INTEG["🔗 CI-4 · Tests Intégration\nSpringBootTest · MockMvc · H2\ntarget/failsafe-reports/"]
+        UNIT --> INTEG["🔗 CI-4 · Tests Intégration SpringBootTest · MockMvc · H2 target/failsafe-reports/"]
 
         INTEG --> STATIC_PAR
 
         subgraph STATIC_PAR ["⚡ Parallèle — Analyses Statiques"]
             direction LR
-            OWASP["🛡️ CI-5a · Dépendances\nOWASP Dependency-Check\nCVSS ≥ 7 → FAIL\nbom: HTML + JSON"]
-            SBOM["📋 CI-5b · SBOM\nCycloneDX Maven Plugin\nbom.json · bom.xml\nlicences + hashes"]
+            OWASP["🛡️ CI-5a · Dépendances OWASP Dependency-Check CVSS ≥ 7 → FAIL bom: HTML + JSON"]
+            SBOM["📋 CI-5b · SBOM CycloneDX Maven Plugin bom.json · bom.xml licences + hashes"]
         end
 
-        STATIC_PAR --> SONAR["📊 CI-6 · Qualimétrie\nSonarQube Scanner\nbugs · smells · coverage\nduplication · vulnérabilités"]
+        STATIC_PAR --> SONAR["📊 CI-6 · Qualimétrie SonarQube Scanner bugs · smells · coverage duplication · vulnérabilités"]
 
-        SONAR --> GATE{"✅ CI-7 · Quality Gate\nSonarQube\nOK / ERROR"}
+        SONAR --> GATE{"✅ CI-7 · Quality Gate SonarQube OK / ERROR"}
 
-        GATE -->|"✅ Pass"| DBUILD["🐳 CI-8 · Docker Build\nMulti-stage · JRE Alpine\ntag: branch-sha7-buildNum"]
-        GATE -->|"❌ Error"| ABORT(["🚫 Pipeline Interrompu\n— notification —"])
+        GATE -->|"✅ Pass"| DBUILD["🐳 CI-8 · Docker Build Multi-stage · JRE Alpine tag: branch-sha7-buildNum"]
+        GATE -->|"❌ Error"| ABORT(["🚫 Pipeline Interrompu — notification —"])
 
         DBUILD --> IMAGE_PAR
 
         subgraph IMAGE_PAR ["⚡ Parallèle — Analyse Image IaCS"]
             direction LR
-            TRIVY["🔍 CI-9a · CVE Scan\nTrivy\nHIGH/CRITICAL → FAIL\ntrivy-image-report.json"]
-            HADOLINT["📝 CI-9b · Dockerfile Lint\nHadolint\nbest practices Docker\nhadolint-report.json"]
-            CHECKOV["🏗️ CI-9c · IaC Scan\nCheckov\nK8s manifests + Dockerfile\ncheckov-k8s-report.json"]
+            TRIVY["🔍 CI-9a · CVE Scan Trivy HIGH/CRITICAL → FAIL trivy-image-report.json"]
+            HADOLINT["📝 CI-9b · Dockerfile Lint Hadolint best practices Docker hadolint-report.json"]
+            CHECKOV["🏗️ CI-9c · IaC Scan Checkov K8s manifests + Dockerfile checkov-k8s-report.json"]
         end
 
-        IMAGE_PAR --> PUSH_IMG["📤 CI-10 · Push Image\nDocker Hub\nbranch-sha7-buildNum\n+ latest si branche main"]
+        IMAGE_PAR --> PUSH_IMG["📤 CI-10 · Push Image Docker Hub branch-sha7-buildNum + latest si branche main"]
     end
 
     subgraph CD ["🟢 CONTINUOUS DEPLOYMENT"]
         direction TB
 
-        PUSH_IMG --> DEPLOY["☸️ CD-1 · Deploy Kubernetes\nenvsubst + kubectl apply\nRolling Update\nmaxSurge=1 · maxUnavailable=0"]
+        PUSH_IMG --> DEPLOY["☸️ CD-1 · Deploy Kubernetes envsubst + kubectl apply Rolling Update maxSurge=1 · maxUnavailable=0"]
 
-        DEPLOY --> SMOKE["💨 CD-2 · Smoke Test\n/actuator/health → UP\ntimeout 60s · retry toutes 5s"]
+        DEPLOY --> SMOKE["💨 CD-2 · Smoke Test /actuator/health → UP timeout 60s · retry toutes 5s"]
 
         SMOKE --> POST_PAR
 
         subgraph POST_PAR ["⚡ Parallèle — Analyses Post-Déploiement"]
             direction LR
-            ZAP["🔐 CD-3a · DAST\nOWASP ZAP API Scan\nOpenAPI /v3/api-docs\nPassif → rapport HTML"]
-            E2E["🌐 CD-3b · Tests E2E\nNewman (Postman CLI)\nRegister → Login → Account\n→ Transfer · JUnit XML"]
+            ZAP["🔐 CD-3a · DAST OWASP ZAP API Scan OpenAPI /v3/api-docs Passif → rapport HTML"]
+            E2E["🌐 CD-3b · Tests E2E Newman (Postman CLI) Register → Login → Account → Transfer · JUnit XML"]
         end
 
-        POST_PAR --> ACCESS["♿ CD-4 · Accessibilité\nPa11y CLI\nWCAG 2.1 AA ⊇ RGAA 4.1\npa11y-report.html"]
+        POST_PAR --> ACCESS["♿ CD-4 · Accessibilité Pa11y CLI WCAG 2.1 AA ⊇ RGAA 4.1 pa11y-report.html"]
 
-        ACCESS --> GREEN["🌱 CD-5 · Green IT\nEcoIndex CLI → note A-G\nkubectl top → CPU/RAM\necoindex-report.json"]
+        ACCESS --> GREEN["🌱 CD-5 · Green IT EcoIndex CLI → note A-G kubectl top → CPU/RAM ecoindex-report.json"]
 
-        GREEN --> SUCCESS(["✅ Déploiement Validé\n— notification succès —"])
+        GREEN --> SUCCESS(["✅ Déploiement Validé — notification succès —"])
     end
 
-    SMOKE -->|"❌ Échec"| ROLLBACK["🔄 Rollback Auto\nkubectl rollout undo\nretour révision N-1"]
+    SMOKE -->|"❌ Échec"| ROLLBACK["🔄 Rollback Auto kubectl rollout undo retour révision N-1"]
     ABORT --> NOTIF_FAIL(["📧 Notification Échec"])
     ROLLBACK --> NOTIF_FAIL
 

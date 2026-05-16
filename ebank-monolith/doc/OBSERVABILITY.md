@@ -104,9 +104,9 @@ Every request gets a `TraceID`. All log lines for that request include `correlat
 
 ```mermaid
 flowchart LR
-    Req["Incoming request"] --> F["RequestLoggingFilter\nMDC.put(correlationId)"]
+    Req["Incoming request"] --> F["RequestLoggingFilter MDC.put(correlationId)"]
     F --> Chain["Filter chain / Controller"]
-    Chain --> F2["finally:\nlog INFO + MDC.clear()"]
+    Chain --> F2["finally: log INFO + MDC.clear()"]
     F2 --> Out["Logstash / Loki"]
 ```
 
