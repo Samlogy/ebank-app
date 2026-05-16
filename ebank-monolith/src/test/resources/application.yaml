@@ -27,6 +27,15 @@ spring:
     vault:
       enabled: false
 
+  # Disable Redis in tests — @Cacheable becomes a no-op pass-through
+  cache:
+    type: none
+
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
+
 # Disable SpringDoc scanning in tests — avoids Spring Framework 7 API surface issues
 springdoc:
   api-docs:

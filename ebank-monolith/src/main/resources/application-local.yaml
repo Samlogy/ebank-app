@@ -8,6 +8,12 @@
 # Never use these credentials in any shared or deployed environment.
 
 spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      # password: leave blank for local dev (no auth on the Docker Redis container)
+
   datasource:
     url: jdbc:postgresql://localhost:5432/ebank_dev
     username: ebank_user

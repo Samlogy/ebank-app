@@ -29,6 +29,18 @@ spring:
           batch_size: 20
           fetch_size: 50
 
+  # Redis — host/port/password injected per environment; Vault overrides in dev/prod
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST:localhost}
+      port: ${SPRING_REDIS_PORT:6379}
+      password: ${SPRING_REDIS_PASSWORD:}
+      connect-timeout: 2000
+      timeout: 1000
+
+  cache:
+    type: redis
+
   # Java 21 virtual threads — dramatically reduces thread overhead under load
   threads:
     virtual:
