@@ -8,9 +8,10 @@
 
 ```mermaid
 graph LR
-    App["Spring Boot App"] -->|metrics /actuator/prometheus| Prometheus
+    App["Spring Boot App\n:8080"] -->|metrics /actuator/prometheus| Prometheus
     App -->|OTLP gRPC :4317| Tempo
     App -->|structured logs| Loki
+    App -->|register + actuator pull| SBA["Spring Boot Admin\n:8090"]
 
     Prometheus --> Grafana
     Tempo       --> Grafana
@@ -21,7 +22,54 @@ graph LR
     end
 ```
 
-Three signals, one dashboard (Grafana). The ELK stack is an optional overlay — activate it with `--profile elk` if you need full-text log search at scale.
+Four observability tools covering different use cases:
+
+| Tool | Use case | Access |
+|---|---|---|
+| **Spring Boot Admin** | Interactive monitoring, log-level changes, thread dump, real-time health | `localhost:8090` |
+| **Grafana** | Metrics dashboards, trace inspection, log correlation | `localhost:3000` |
+| **Prometheus** | Metric storage + alerting rules | `localhost:9090` |
+| **Kibana** | Full-text log search (ELK profile) | `localhost:5601` |
+
+---
+
+## Spring Boot Admin
+
+```mermaid
+sequenceDiagram
+    participant App as App :8080
+    participant SBA as Admin Server :8090
+
+    App->>SBA: POST /instances (register on startup)
+    SBA-->>App: 201 Created {id}
+
+    loop every 10s (heartbeat)
+        App->>SBA: POST /instances/{id}/info
+    end
+
+    Note over SBA: Browser opens UI
+    SBA->>App: GET /actuator/health
+    SBA->>App: GET /actuator/metrics/jvm.memory.used
+    SBA->>App: GET /actuator/loggers
+    SBA->>App: GET /actuator/caches
+    SBA->>App: GET /actuator/env
+```
+
+**What the admin server provides:**
+
+| Panel | Data source | What you can do |
+|---|---|---|
+| Health | `/actuator/health` | See DB, Redis, disk status at a glance |
+| JVM | `/actuator/metrics` | Heap, non-heap, GC pause, thread count live |
+| HTTP traffic | `/actuator/metrics` | Request rate, error rate, latency per endpoint |
+| Loggers | `/actuator/loggers` | Change `com.ebank` to DEBUG at runtime — no restart |
+| Environment | `/actuator/env` | Browse active properties (values redacted) |
+| Caches | `/actuator/caches` | Redis cache names and hit/miss counts |
+| Thread dump | `/actuator/threaddump` | Snapshot of all live threads |
+| Flyway | `/actuator/flyway` | DB migration history and status |
+| Mappings | `/actuator/mappings` | All HTTP endpoints registered in the app |
+
+**Security:** Form login + HTTP Basic. Credentials from `.env` (`ADMIN_UI_USER` / `ADMIN_UI_PASSWORD`) or Vault for dev/prod. The `/actuator/**` endpoints are open on the internal Docker/K8s network and protected by NetworkPolicy in production.
 
 ---
 
@@ -170,6 +218,8 @@ docker compose --profile elk up -d
 
 | Decision | Benefit | Cost |
 |---|---|---|
+| Spring Boot Admin (separate server) | Isolated from app; survives app crash | Extra service to deploy and secure |
+| Open `/actuator/**` on internal network | Simple; no per-endpoint credential plumbing | Relies entirely on network controls (NetworkPolicy / Docker bridge) |
 | Pull-based metrics (Prometheus) | Prometheus owns scrape schedule | Needs network access to every pod |
 | Micrometer facade | Swap backends without code changes | Extra abstraction layer |
 | Tempo over Jaeger | Grafana-native; single UI | TraceQL is less mature than Jaeger UI |

@@ -28,6 +28,7 @@
         <lombok.version>1.18.46</lombok.version>
         <springdoc.version>2.8.17</springdoc.version>
         <resilience4j.version>2.4.0</resilience4j.version>
+        <spring-boot-admin.version>4.0.4</spring-boot-admin.version>
     </properties>
 
     <dependencyManagement>
@@ -135,6 +136,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Admin Client — registers with the admin server UI -->
+        <dependency>
+            <groupId>de.codecentric</groupId>
+            <artifactId>spring-boot-admin-starter-client</artifactId>
+            <version>${spring-boot-admin.version}</version>
         </dependency>
 
         <!-- Redis (Lettuce client) -->
