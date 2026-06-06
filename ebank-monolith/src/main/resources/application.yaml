@@ -41,6 +41,22 @@ spring:
   cache:
     type: redis
 
+  # Spring Boot Admin client — disabled by default; enabled per-environment via env var or Vault
+  boot:
+    admin:
+      client:
+        enabled: ${SPRING_BOOT_ADMIN_ENABLED:false}
+        url: ${SPRING_BOOT_ADMIN_URL:http://localhost:8090}
+        username: ${SPRING_BOOT_ADMIN_USERNAME:admin}
+        password: ${SPRING_BOOT_ADMIN_PASSWORD:admin}
+        instance:
+          # URL the admin server uses to reach back to this app's actuator endpoints
+          service-base-url: ${SPRING_APP_BASE_URL:http://localhost:${server.port:8080}}
+          prefer-ip: true
+          name: ${spring.application.name}
+          metadata:
+            environment: ${spring.profiles.active:default}
+
   # Java 21 virtual threads — dramatically reduces thread overhead under load
   threads:
     virtual:
@@ -89,4 +105,17 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # Exposes all endpoints needed by Spring Boot Admin.
+        # In dev/prod, Vault overrides this to a tighter set.
+        include: health,info,metrics,prometheus,loggers,env,caches,threaddump,flyway,scheduledtasks,conditions,configprops,beans,mappings
+  endpoint:
+    health:
+      show-details: always          # required for Spring Boot Admin health detail panel
+      probes:
+        enabled: true               # /actuator/health/liveness + /readiness
+    env:
+      show-values: never            # never leak secret values through /actuator/env
+    loggers:
+      enabled: true                 # log-level changes at runtime via Spring Boot Admin
+    caches:
+      enabled: true                 # Redis cache stats in Spring Boot Admin

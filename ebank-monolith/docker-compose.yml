@@ -249,6 +249,29 @@ services:
     networks:
       - ebank-network
 
+  # ── Spring Boot Admin Server ─────────────────────────────────────────────────
+  admin:
+    build:
+      context: ./admin
+      dockerfile: Dockerfile
+    container_name: ebank_admin
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVER_PORT:       8090
+      ADMIN_UI_USER:     ${ADMIN_UI_USER:-admin}
+      ADMIN_UI_PASSWORD: ${ADMIN_UI_PASSWORD:-admin}
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8090/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - ebank-network
+
   # ── Spring Boot Application ──────────────────────────────────────────────────
   app:
     build:
@@ -263,29 +286,34 @@ services:
       SPRING_DATASOURCE_URL:  jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
-      SPRING_REDIS_HOST:      redis
-      SPRING_REDIS_PORT:      6379
-      SPRING_REDIS_PASSWORD:  ${REDIS_PASSWORD:-}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
-      ADMIN_EMAIL:            ${ADMIN_EMAIL:-}
-      ADMIN_PASSWORD:         ${ADMIN_PASSWORD:-}
-      SERVER_PORT:            8080
-      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,prometheus"
-      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+      SPRING_REDIS_HOST:              redis
+      SPRING_REDIS_PORT:              6379
+      SPRING_REDIS_PASSWORD:          ${REDIS_PASSWORD:-}
+      SPRING_BOOT_ADMIN_ENABLED:      "true"
+      SPRING_BOOT_ADMIN_URL:          http://admin:8090
+      SPRING_BOOT_ADMIN_USERNAME:     ${ADMIN_UI_USER:-admin}
+      SPRING_BOOT_ADMIN_PASSWORD:     ${ADMIN_UI_PASSWORD:-admin}
+      SPRING_APP_BASE_URL:            http://app:8080
+      SPRING_JPA_HIBERNATE_DDL_AUTO:  update
+      ADMIN_EMAIL:                    ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD:                 ${ADMIN_PASSWORD:-}
+      SERVER_PORT:                    8080
       # ELK/Logstash configuration (used when ELK profile is enabled)
-      LOGSTASH_HOST:          ${LOGSTASH_HOST:-localhost}
-      LOGSTASH_PORT:          ${LOGSTASH_PORT:-5000}
+      LOGSTASH_HOST:                  ${LOGSTASH_HOST:-localhost}
+      LOGSTASH_PORT:                  ${LOGSTASH_PORT:-5000}
       # Vault configuration (used when Vault profile is enabled)
-      VAULT_HOST:             ${VAULT_HOST:-localhost}
-      VAULT_PORT:             ${VAULT_PORT:-8200}
-      VAULT_SCHEME:           ${VAULT_SCHEME:-http}
-      VAULT_ENV_ID:           ${VAULT_ENV_ID:-E2}
+      VAULT_HOST:                     ${VAULT_HOST:-localhost}
+      VAULT_PORT:                     ${VAULT_PORT:-8200}
+      VAULT_SCHEME:                   ${VAULT_SCHEME:-http}
+      VAULT_ENV_ID:                   ${VAULT_ENV_ID:-E2}
     ports:
       - "8081:8080"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      admin:
         condition: service_healthy
       logstash:
         condition: service_healthy
