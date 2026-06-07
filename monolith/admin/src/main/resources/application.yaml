@@ -1,0 +1,28 @@
+server:
+  port: ${SERVER_PORT:8090}
+
+spring:
+  application:
+    name: ebank-admin-server
+  security:
+    user:
+      # Overridden at runtime by ADMIN_UI_USER / ADMIN_UI_PASSWORD env vars
+      name: ${ADMIN_UI_USER:admin}
+      password: ${ADMIN_UI_PASSWORD:admin}
+  threads:
+    virtual:
+      enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: INFO
+    de.codecentric.boot.admin: INFO
