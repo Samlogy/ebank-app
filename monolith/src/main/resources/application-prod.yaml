@@ -34,3 +34,30 @@ spring:
         backend-version: 2
       connection-timeout: 5000
       read-timeout: 15000
+
+  # Spring Boot Admin client — enabled in prod; credentials injected via docker-compose / CI env vars
+  boot:
+    admin:
+      client:
+        enabled: ${SPRING_BOOT_ADMIN_ENABLED:true}
+        url: ${SPRING_BOOT_ADMIN_URL:http://admin:8090}
+        username: ${SPRING_BOOT_ADMIN_USERNAME:admin}
+        password: ${SPRING_BOOT_ADMIN_PASSWORD:admin}
+        instance:
+          service-base-url: ${SPRING_APP_BASE_URL:http://app:8080}
+
+# Tighter actuator surface in prod — only expose what Spring Boot Admin strictly needs
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,loggers
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+    env:
+      show-values: never
+    loggers:
+      enabled: true

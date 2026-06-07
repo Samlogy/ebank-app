@@ -32,6 +32,13 @@ graph TD
         AR --> accounts
         TR --> transactions
     end
+
+    subgraph Admin["Spring Boot Admin — port 8090"]
+        AdminUI[Admin UI]
+    end
+
+    API -->|register + actuator| Admin
+    AdminUI -->|scrape /actuator/**| API
 ```
 
 ---
@@ -165,6 +172,54 @@ vault/seeds/
 helm/          # Kubernetes deployment → see doc/KUBERNETES.md
 docker/        # Prometheus, Grafana, Tempo config → see doc/OBSERVABILITY.md
 ```
+
+---
+
+---
+
+## Spring Boot Admin
+
+Real-time monitoring UI for the running application.
+
+```
+http://localhost:8090   login: admin / admin (local default)
+```
+
+```mermaid
+graph LR
+    subgraph "What you see in the UI"
+        JVM["JVM\nheap · threads · GC"]
+        HTTP["HTTP\nrequests · latency · errors"]
+        Health["Health\nDB · Redis · disk"]
+        Loggers["Loggers\nchange level at runtime"]
+        Env["Environment\nactive properties"]
+        Caches["Caches\nRedis cache stats"]
+        Threads["Thread dump\nlive snapshot"]
+        Flyway["Flyway\nmigration history"]
+    end
+    API["app :8080\n/actuator/**"] --> JVM & HTTP & Health & Loggers & Env & Caches & Threads & Flyway
+```
+
+| Feature | Actuator endpoint |
+|---|---|
+| JVM / CPU / memory | `/actuator/metrics` |
+| Thread dump | `/actuator/threaddump` |
+| Log level change | `/actuator/loggers/{name}` |
+| Health (DB, Redis…) | `/actuator/health` |
+| Active properties | `/actuator/env` |
+| Cache details | `/actuator/caches` |
+| DB migrations | `/actuator/flyway` |
+| Request mappings | `/actuator/mappings` |
+
+**Per environment:**
+
+| | local | dev (E2) | prod (E1) |
+|---|---|---|---|
+| Admin enabled | yes | yes (Vault) | yes (Vault) |
+| Endpoints exposed | all | all + prometheus | health, info, metrics, loggers, caches |
+| Admin URL | `localhost:8090` | Vault key | Vault key |
+
+> See [OBSERVABILITY.md](doc/OBSERVABILITY.md) for the full observability stack (Prometheus, Grafana, Tempo, Loki).
 
 ---
 
