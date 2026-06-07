@@ -1,0 +1,16 @@
+.idea/*
+.vscode/*
+.claude/*
+
+# Environment — ne jamais committer
+.env
+
+**/target
+
+frontend/node_modules
+frontend/dist
+
+chatbot/node_modules
+
+notifications/node_modules
+notifications/dist

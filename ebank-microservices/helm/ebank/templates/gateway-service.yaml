@@ -1,0 +1,23 @@
+{{- if .Values.gateway.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ebank.fullname" . }}-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  # ClusterIP — Ingress controller routes to it. No direct external access.
+  # WHY not LoadBalancer: LoadBalancer creates a cloud LB per service (expensive).
+  # Use ONE Ingress controller (nginx) as the single cloud LB, route internally.
+  type: ClusterIP
+  selector:
+    {{- include "ebank.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+  ports:
+    - name: http
+      port: {{ .Values.gateway.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

@@ -1,0 +1,13 @@
+# docker — config de base, surpassée par Vault au runtime
+# path: secret/ebank/transaction-service/docker
+
+spring:
+  mongodb:
+    uri: mongodb://mongo:mongopass@mongodb:27017/transactions_db?authSource=admin
+  kafka:
+    bootstrap-servers: kafka:9092
+  data:
+    redis:
+      host: redis
+      port: 6379
+      password: redispass

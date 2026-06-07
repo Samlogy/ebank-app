@@ -1,0 +1,52 @@
+server:
+  port: 8083
+
+spring:
+  mongodb:
+    uri: mongodb://localhost:27017/transactions_db
+
+  kafka:
+    bootstrap-servers: localhost:9092
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: redispass
+
+springdoc:
+  api-docs:
+    path: /transactions-api-docs
+  swagger-ui:
+    path: /transactions-api-ui
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      service: ${spring.application.name}
+      env: local
+  tracing:
+    sampling:
+      probability: 1.0
+
+# Logging levels — pattern/format is defined in logback-spring.xml
+logging:
+  level:
+    com.ebank.transactions: INFO
+    org.springframework.web: INFO
+    org.springframework.data.mongodb: INFO
+# error handling => LOCAL (show all details)
+error:
+  handling:
+    show-details: true
+    include-stacktrace: true
+    include-validation-errors: true
+    include-trace-id: true
+    trace-id-header: X-Trace-Id

@@ -1,0 +1,48 @@
+# Grafana datasource provisioning — Tempo (distributed traces)
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: false
+    jsonData:
+      # ── Traces → Logs correlation ──────────────────────────────────────────
+      # Click a traceId in Tempo → jump directly to the matching Loki logs
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: true
+        filterBySpanID: false
+        customQuery: false
+        tags:
+          - key: service           # maps Tempo span tag "service" to Loki label
+
+      # ── Traces → Metrics correlation ──────────────────────────────────────
+      # Click a span in Tempo → see the matching Prometheus metrics for that service
+      tracesToMetrics:
+        datasourceUid: prometheus
+        tags:
+          - key: service
+        queries:
+          - name: Request rate
+            query: rate(http_server_requests_seconds_count{service="$__tags.service"}[1m])
+          - name: Error rate
+            query: rate(http_server_requests_seconds_count{service="$__tags.service",status=~"5.."}[1m])
+          - name: p99 latency
+            query: histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{service="$__tags.service"}[5m]))
+
+      # ── Service Map (from Tempo metrics generator) ─────────────────────────
+      serviceMap:
+        datasourceUid: prometheus
+
+      # ── Node graph ────────────────────────────────────────────────────────
+      nodeGraph:
+        enabled: true
+
+      # ── Search ────────────────────────────────────────────────────────────
+      search:
+        hide: false
+      lokiSearch:
+        datasourceUid: loki

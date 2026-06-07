@@ -1,0 +1,90 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# grafana-datasources.yaml — Auto-provision all three observability backends
+# into the Grafana instance deployed by loki-stack.
+#
+# Grafana sidecar watches ConfigMaps with label grafana_datasource=1 and
+# loads them as datasource provisioning files at startup.
+#
+# Backends wired:
+#   1. Prometheus  (metrics)   → monitoring namespace
+#   2. Loki        (logs)      → ebank-local namespace
+#   3. Tempo       (traces)    → ebank-local namespace
+#
+# Correlation links:
+#   Prometheus → Tempo  : click a metric spike → open trace explorer
+#   Loki       → Tempo  : click traceId in a log line → open trace
+#   Tempo      → Loki   : click a span → open correlated log query
+# ══════════════════════════════════════════════════════════════════════════════
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources-ebank
+  namespace: ebank-local
+  labels:
+    # This label tells the Grafana sidecar to pick up this ConfigMap
+    grafana_datasource: "1"
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+
+      # ── 1. Prometheus ─────────────────────────────────────────────────────
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        url: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+        access: proxy
+        isDefault: false
+        jsonData:
+          # Enables exemplar links: a metric data point can link to a trace
+          exemplarTraceIdDestinations:
+            - name: traceID
+              datasourceUid: tempo
+          httpMethod: POST
+          timeInterval: "30s"
+
+      # ── 2. Loki (update existing — add derived traceId field) ───────────────
+      # loki-stack already creates a Loki datasource. We use editable: true so
+      # Grafana merges/updates it rather than failing on duplicate name.
+      - name: Loki
+        type: loki
+        uid: loki
+        url: http://loki.ebank-local.svc.cluster.local:3100
+        access: proxy
+        editable: true
+        jsonData:
+          derivedFields:
+            - name: traceID
+              matcherRegex: '"traceId":"([^"]+)"'
+              url: "${__value.raw}"
+              datasourceUid: tempo
+
+      # ── 3. Tempo (update existing — wire to Loki + Prometheus) ───────────
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        url: http://tempo.ebank-local.svc.cluster.local:3200
+        access: proxy
+        editable: true
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: "-1m"
+            spanEndTimeShift: "1m"
+            filterByTraceID: true
+            filterBySpanID: false
+            customQuery: true
+            query: '{service="${__span.tags.service.name}"} |= "${__trace.traceId}"'
+          tracesToMetrics:
+            datasourceUid: prometheus
+            spanStartTimeShift: "-2m"
+            spanEndTimeShift: "2m"
+            queries:
+              - name: "Request rate"
+                query: 'rate(http_server_requests_seconds_count{job="${__span.tags.job}"}[5m])'
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+          lokiSearch:
+            datasourceUid: loki

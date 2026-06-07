@@ -1,0 +1,582 @@
+services:
+
+  # ================================================================
+  # VAULT — secrets store (dev mode, in-memory)
+  # ================================================================
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: ebank_vault
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - ebank-network
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://localhost:8200"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ================================================================
+  # VAULT INIT — seed toute la config par service et par env, puis exit
+  #
+  # Convention de nommage des paths:
+  #   secret/ebank/{service}/{env}
+  #
+  # Les valeurs sont stockées en JSON natif par Vault KV v2.
+  # Pour inspecter: vault kv get -format=json secret/ebank/{service}/{env}
+  # ================================================================
+  vault-init:
+    image: hashicorp/vault:1.17
+    container_name: ebank_vault_init
+    restart: "no"
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+    networks:
+      - ebank-network
+    depends_on:
+      vault:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        vault secrets enable -version=2 -path=secret kv 2>/dev/null || true
+
+        # ================================================================
+        # AUTH SERVICE
+        # ================================================================
+
+        # --- docker ---
+        vault kv put secret/ebank/auth-service/docker \
+          "server.port=8081" \
+          "spring.datasource.url=jdbc:postgresql://postgres:5432/auth_db" \
+          "spring.datasource.username=postgres" \
+          "spring.datasource.password=postgres" \
+          "spring.datasource.driver-class-name=org.postgresql.Driver" \
+          "spring.jpa.hibernate.ddl-auto=none" \
+          "spring.jpa.show-sql=false" \
+          "spring.flyway.enabled=true" \
+          "spring.flyway.locations=classpath:db/migration" \
+          "spring.flyway.connect-retries=5" \
+          "spring.data.redis.host=redis" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "jwt.secret=ebank-super-secret-jwt-key-min-32-chars-2024" \
+          "jwt.expiration=900000" \
+          "jwt.refresh-expiration=604800000" \
+          "springdoc.api-docs.path=/auth-api-docs" \
+          "springdoc.swagger-ui.path=/auth-api-ui" \
+          "logging.level.com.ebank.auth=DEBUG" \
+          "logging.level.org.springframework.security=INFO" \
+          "management.endpoints.web.exposure.include=health,info,metrics,refresh,env" \
+          "management.endpoint.health.show-details=ALWAYS"
+
+        # --- recf ---
+        vault kv put secret/ebank/auth-service/recf \
+          "server.port=8081" \
+          "spring.datasource.url=jdbc:postgresql://postgres-recf:5432/auth_db" \
+          "spring.datasource.username=postgres" \
+          "spring.datasource.password=postgres" \
+          "spring.datasource.driver-class-name=org.postgresql.Driver" \
+          "spring.jpa.hibernate.ddl-auto=none" \
+          "spring.jpa.show-sql=false" \
+          "spring.flyway.enabled=true" \
+          "spring.flyway.locations=classpath:db/migration" \
+          "spring.flyway.connect-retries=5" \
+          "spring.data.redis.host=redis-recf" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "jwt.secret=ebank-super-secret-jwt-key-min-32-chars-recf" \
+          "jwt.expiration=900000" \
+          "jwt.refresh-expiration=604800000" \
+          "springdoc.api-docs.path=/auth-api-docs" \
+          "springdoc.swagger-ui.path=/auth-api-ui" \
+          "logging.level.com.ebank.auth=WARN" \
+          "logging.level.org.springframework.security=WARN" \
+          "management.endpoints.web.exposure.include=health,info,metrics,refresh,env" \
+          "management.endpoint.health.show-details=ALWAYS"
+
+        # --- prod ---
+        vault kv put secret/ebank/auth-service/prod \
+          "server.port=8081" \
+          "spring.datasource.url=jdbc:postgresql://postgres-prod:5432/auth_db" \
+          "spring.datasource.username=postgres" \
+          "spring.datasource.password=postgres" \
+          "spring.datasource.driver-class-name=org.postgresql.Driver" \
+          "spring.jpa.hibernate.ddl-auto=none" \
+          "spring.jpa.show-sql=false" \
+          "spring.flyway.enabled=true" \
+          "spring.flyway.locations=classpath:db/migration" \
+          "spring.flyway.connect-retries=5" \
+          "spring.data.redis.host=redis-prod" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "jwt.secret=ebank-super-secret-jwt-key-min-32-chars-prod" \
+          "jwt.expiration=900000" \
+          "jwt.refresh-expiration=604800000" \
+          "springdoc.api-docs.path=/auth-api-docs" \
+          "springdoc.swagger-ui.path=/auth-api-ui" \
+          "logging.level.com.ebank.auth=WARN" \
+          "logging.level.org.springframework.security=WARN" \
+          "management.endpoints.web.exposure.include=health,info,metrics" \
+          "management.endpoint.health.show-details=NEVER"
+
+        # ================================================================
+        # ACCOUNTS SERVICE
+        # ================================================================
+
+        # --- docker ---
+        vault kv put secret/ebank/accounts-service/docker \
+          "server.port=8082" \
+          "spring.r2dbc.url=r2dbc:postgresql://postgres:5432/accounts_db" \
+          "spring.r2dbc.username=postgres" \
+          "spring.r2dbc.password=postgres" \
+          "spring.flyway.url=jdbc:postgresql://postgres:5432/accounts_db" \
+          "spring.flyway.user=postgres" \
+          "spring.flyway.password=postgres" \
+          "spring.flyway.enabled=true" \
+          "spring.flyway.locations=classpath:db/migration" \
+          "spring.data.redis.host=redis" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "spring.data.redis.timeout=5000" \
+          "springdoc.api-docs.path=/accounts-api-docs" \
+          "springdoc.swagger-ui.path=/accounts-api-ui" \
+          "logging.level.com.ebank.accounts=DEBUG" \
+          "logging.level.io.r2dbc.postgresql=INFO" \
+          "management.endpoints.web.exposure.include=health,info,metrics,refresh,env" \
+          "management.endpoint.health.show-details=ALWAYS"
+
+        # --- recf ---
+        vault kv put secret/ebank/accounts-service/recf \
+          "server.port=8082" \
+          "spring.r2dbc.url=r2dbc:postgresql://postgres-recf:5432/accounts_db" \
+          "spring.r2dbc.username=postgres" \
+          "spring.r2dbc.password=postgres" \
+          "spring.flyway.url=jdbc:postgresql://postgres-recf:5432/accounts_db" \
+          "spring.flyway.user=postgres" \
+          "spring.flyway.password=postgres" \
+          "spring.flyway.enabled=true" \
+          "spring.flyway.locations=classpath:db/migration" \
+          "spring.data.redis.host=redis-recf" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "spring.data.redis.timeout=5000" \
+          "springdoc.api-docs.path=/accounts-api-docs" \
+          "springdoc.swagger-ui.path=/accounts-api-ui" \
+          "logging.level.com.ebank.accounts=WARN" \
+          "logging.level.io.r2dbc.postgresql=WARN" \
+          "management.endpoints.web.exposure.include=health,info,metrics,refresh,env" \
+          "management.endpoint.health.show-details=ALWAYS"
+
+        # --- prod ---
+        vault kv put secret/ebank/accounts-service/prod \
+          "server.port=8082" \
+          "spring.r2dbc.url=r2dbc:postgresql://postgres-prod:5432/accounts_db" \
+          "spring.r2dbc.username=postgres" \
+          "spring.r2dbc.password=postgres" \
+          "spring.flyway.url=jdbc:postgresql://postgres-prod:5432/accounts_db" \
+          "spring.flyway.user=postgres" \
+          "spring.flyway.password=postgres" \
+          "spring.flyway.enabled=true" \
+          "spring.flyway.locations=classpath:db/migration" \
+          "spring.data.redis.host=redis-prod" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "spring.data.redis.timeout=5000" \
+          "springdoc.api-docs.path=/accounts-api-docs" \
+          "springdoc.swagger-ui.path=/accounts-api-ui" \
+          "logging.level.com.ebank.accounts=WARN" \
+          "logging.level.io.r2dbc.postgresql=WARN" \
+          "management.endpoints.web.exposure.include=health,info,metrics" \
+          "management.endpoint.health.show-details=NEVER"
+
+        # ================================================================
+        # TRANSACTION SERVICE
+        # ================================================================
+
+        # --- docker ---
+        vault kv put secret/ebank/transaction-service/docker \
+          "server.port=8083" \
+          "spring.data.mongodb.uri=mongodb://mongo:mongopass@mongodb:27017/transactions_db?authSource=admin" \
+          "spring.kafka.bootstrap-servers=kafka:9092" \
+          "spring.data.redis.host=redis" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "spring.data.redis.timeout=5000" \
+          "springdoc.api-docs.path=/transaction-api-docs" \
+          "springdoc.swagger-ui.path=/transaction-api-ui" \
+          "logging.level.com.ebank.transactions=DEBUG" \
+          "logging.level.org.springframework.data.mongodb=INFO" \
+          "management.endpoints.web.exposure.include=health,info,metrics,refresh,env" \
+          "management.endpoint.health.show-details=ALWAYS"
+
+        # --- recf ---
+        vault kv put secret/ebank/transaction-service/recf \
+          "server.port=8083" \
+          "spring.data.mongodb.uri=mongodb://mongo:mongopass@mongodb-recf:27017/transactions_db?authSource=admin" \
+          "spring.kafka.bootstrap-servers=kafka-recf:9092" \
+          "spring.data.redis.host=redis-recf" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "spring.data.redis.timeout=5000" \
+          "springdoc.api-docs.path=/transaction-api-docs" \
+          "springdoc.swagger-ui.path=/transaction-api-ui" \
+          "logging.level.com.ebank.transactions=WARN" \
+          "logging.level.org.springframework.data.mongodb=WARN" \
+          "management.endpoints.web.exposure.include=health,info,metrics,refresh,env" \
+          "management.endpoint.health.show-details=ALWAYS"
+
+        # --- prod ---
+        vault kv put secret/ebank/transaction-service/prod \
+          "server.port=8083" \
+          "spring.data.mongodb.uri=mongodb://mongo:mongopass@mongodb-prod:27017/transactions_db?authSource=admin" \
+          "spring.kafka.bootstrap-servers=kafka-prod:9092" \
+          "spring.data.redis.host=redis-prod" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "spring.data.redis.timeout=5000" \
+          "springdoc.api-docs.path=/transaction-api-docs" \
+          "springdoc.swagger-ui.path=/transaction-api-ui" \
+          "logging.level.com.ebank.transactions=WARN" \
+          "logging.level.org.springframework.data.mongodb=WARN" \
+          "management.endpoints.web.exposure.include=health,info,metrics" \
+          "management.endpoint.health.show-details=NEVER"
+
+        # ================================================================
+        # GATEWAY
+        # ================================================================
+
+        # --- docker ---
+        vault kv put secret/ebank/gateway/docker \
+          "server.port=8080" \
+          "spring.data.redis.host=redis" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "jwt.secret=ebank-super-secret-jwt-key-min-32-chars-2024" \
+          "auth.service.url=http://auth-service:8081" \
+          "accounts.service.url=http://accounts-service:8082" \
+          "transaction.service.url=http://transaction-service:8083" \
+          "chatbot.service.url=http://chatbot-service:3001" \
+          "notification.service.url=http://notification-service:3002" \
+          "springdoc.api-docs.path=/gateway-api-docs" \
+          "springdoc.swagger-ui.path=/gateway-api-ui" \
+          "logging.level.com.ebank.gateway=DEBUG" \
+          "logging.level.org.springframework.cloud.gateway=INFO" \
+          "management.endpoints.web.exposure.include=health,info,metrics" \
+          "management.endpoint.health.show-details=ALWAYS"
+
+        # --- recf ---
+        vault kv put secret/ebank/gateway/recf \
+          "server.port=8080" \
+          "spring.data.redis.host=redis-recf" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "jwt.secret=ebank-super-secret-jwt-key-min-32-chars-recf" \
+          "auth.service.url=http://auth-service:8081" \
+          "accounts.service.url=http://accounts-service:8082" \
+          "transaction.service.url=http://transaction-service:8083" \
+          "chatbot.service.url=http://chatbot-service:3001" \
+          "notification.service.url=http://notification-service:3002" \
+          "springdoc.api-docs.path=/gateway-api-docs" \
+          "springdoc.swagger-ui.path=/gateway-api-ui" \
+          "logging.level.com.ebank.gateway=WARN" \
+          "logging.level.org.springframework.cloud.gateway=WARN" \
+          "management.endpoints.web.exposure.include=health,info,metrics" \
+          "management.endpoint.health.show-details=ALWAYS"
+
+        # --- prod ---
+        vault kv put secret/ebank/gateway/prod \
+          "server.port=8080" \
+          "spring.data.redis.host=redis-prod" \
+          "spring.data.redis.port=6379" \
+          "spring.data.redis.password=redispass" \
+          "jwt.secret=ebank-super-secret-jwt-key-min-32-chars-prod" \
+          "auth.service.url=http://auth-service:8081" \
+          "accounts.service.url=http://accounts-service:8082" \
+          "transaction.service.url=http://transaction-service:8083" \
+          "chatbot.service.url=http://chatbot-service:3001" \
+          "notification.service.url=http://notification-service:3002" \
+          "springdoc.api-docs.path=/gateway-api-docs" \
+          "springdoc.swagger-ui.path=/gateway-api-ui" \
+          "logging.level.com.ebank.gateway=WARN" \
+          "logging.level.org.springframework.cloud.gateway=WARN" \
+          "management.endpoints.web.exposure.include=health,info,metrics" \
+          "management.endpoint.health.show-details=NEVER"
+
+        echo "==> Vault: toute la config initialisee (docker / recf / prod)."
+
+  # ================================================================
+  # API GATEWAY
+  # Toute la config vient de Vault: secret/ebank/gateway/docker
+  # ================================================================
+  gateway-service:
+    build: ./gateway
+    container_name: gateway_service
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      VAULT_URI: http://vault:8200
+      VAULT_TOKEN: root
+    networks:
+      - ebank-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ================================================================
+  # AUTH SERVICE
+  # Toute la config vient de Vault: secret/ebank/auth-service/docker
+  # ================================================================
+  auth-service:
+    build: ./auth
+    container_name: auth_service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      VAULT_URI: http://vault:8200
+      VAULT_TOKEN: root
+    networks:
+      - ebank-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ================================================================
+  # ACCOUNTS SERVICE
+  # Toute la config vient de Vault: secret/ebank/accounts-service/docker
+  # ================================================================
+  accounts-service:
+    build: ./accounts
+    container_name: accounts_service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      VAULT_URI: http://vault:8200
+      VAULT_TOKEN: root
+    networks:
+      - ebank-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ================================================================
+  # TRANSACTION SERVICE
+  # Toute la config vient de Vault: secret/ebank/transaction-service/docker
+  # ================================================================
+  transaction-service:
+    build: ./transactions
+    container_name: transaction_service
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      VAULT_URI: http://vault:8200
+      VAULT_TOKEN: root
+    networks:
+      - ebank-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ================================================================
+  # NOTIFICATION SERVICE — Node.js + KafkaJS
+  # Config via env vars (service Node.js, pas Spring)
+  # Secrets Twilio en option via variables d'environnement hôte
+  # ================================================================
+  notification-service:
+    build: ./notifications
+    container_name: notification_service
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      KAFKA_BROKERS: kafka:9092
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM: noreply@ebank.com
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+    networks:
+      - ebank-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ================================================================
+  # INFRASTRUCTURE
+  # ================================================================
+  postgres:
+    image: postgres:17-alpine
+    container_name: ebank_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - ebank-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: ebank_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass redispass
+    volumes:
+      - redis-data:/data
+    networks:
+      - ebank-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redispass", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:7-jammy
+    container_name: ebank_mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo
+      MONGO_INITDB_ROOT_PASSWORD: mongopass
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - ebank-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017 --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: ebank_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - ebank-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: ebank_kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+    networks:
+      - ebank-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ebank_mailhog
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+    networks:
+      - ebank-network
+
+networks:
+  ebank-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  mongodb-data:
+  redis-data:

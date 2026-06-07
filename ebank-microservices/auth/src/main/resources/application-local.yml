@@ -1,0 +1,41 @@
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/auth_db
+    username: postgres
+    password: postgres
+  jpa:
+    show-sql: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      service: ${spring.application.name}
+      env: local
+  tracing:
+    sampling:
+      probability: 1.0
+
+    # Logging levels — pattern/format is defined in logback-spring.xml
+logging:
+  level:
+    com.ebank.auth: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: DEBUG
+
+error:
+  handling:
+    show-details: true
+    include-stacktrace: true
+    include-validation-errors: true
+    include-trace-id: true
+    trace-id-header: X-Trace-Id

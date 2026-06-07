@@ -1,0 +1,335 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# infra-local.yaml — Infrastructure for local/minikube development
+#
+# Uses OFFICIAL Docker Hub images (not Bitnami) — always free, no rate limits.
+# Service names match what vault-init seeds into Vault:
+#   ebank-postgresql:5432, ebank-mongodb:27017, ebank-redis-master:6379, ebank-kafka:9092
+#
+# Deploy BEFORE the Helm chart:
+#   kubectl apply -f k8s/infra-local.yaml -n ebank-local
+#   kubectl wait --for=condition=ready pod -l tier=infra -n ebank-local --timeout=120s
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── PostgreSQL 17 ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ebank-postgresql
+  namespace: ebank-local
+  labels:
+    app: ebank-postgresql
+    tier: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ebank-postgresql
+  template:
+    metadata:
+      labels:
+        app: ebank-postgresql
+        tier: infra
+    spec:
+      containers:
+        - name: postgresql
+          image: postgres:17-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            - name: POSTGRES_DB
+              value: postgres
+          # Run init SQL to create per-service databases
+          volumeMounts:
+            - name: init-sql
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, postgres]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+      volumes:
+        - name: init-sql
+          configMap:
+            name: postgres-init-sql
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-sql
+  namespace: ebank-local
+data:
+  init.sql: |
+    CREATE DATABASE auth_db;
+    CREATE DATABASE accounts_db;
+    CREATE DATABASE chatbot_db;
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ebank-postgresql
+  namespace: ebank-local
+  labels:
+    app: ebank-postgresql
+    tier: infra
+spec:
+  type: ClusterIP
+  selector:
+    app: ebank-postgresql
+  ports:
+    - port: 5432
+      targetPort: 5432
+
+---
+# ── MongoDB 7 ──────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ebank-mongodb
+  namespace: ebank-local
+  labels:
+    app: ebank-mongodb
+    tier: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ebank-mongodb
+  template:
+    metadata:
+      labels:
+        app: ebank-mongodb
+        tier: infra
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:7
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: mongo
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              value: mongopass
+          readinessProbe:
+            exec:
+              command:
+                - mongosh
+                - --quiet
+                - --eval
+                - "db.adminCommand('ping').ok"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ebank-mongodb
+  namespace: ebank-local
+  labels:
+    app: ebank-mongodb
+    tier: infra
+spec:
+  type: ClusterIP
+  selector:
+    app: ebank-mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+
+---
+# ── Redis 7 ───────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ebank-redis
+  namespace: ebank-local
+  labels:
+    app: ebank-redis
+    tier: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ebank-redis
+  template:
+    metadata:
+      labels:
+        app: ebank-redis
+        tier: infra
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          command:
+            - redis-server
+            - --requirepass
+            - redispass
+            - --appendonly
+            - "yes"
+          readinessProbe:
+            exec:
+              command: [redis-cli, -a, redispass, ping]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Named ebank-redis-master to match vault-init template computation
+  name: ebank-redis-master
+  namespace: ebank-local
+  labels:
+    app: ebank-redis
+    tier: infra
+spec:
+  type: ClusterIP
+  selector:
+    app: ebank-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+
+---
+# ── Kafka (Apache official image, KRaft mode — no Zookeeper) ──────────────────
+# Uses apache/kafka:3.7.1 — official Apache image, always on Docker Hub
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ebank-kafka
+  namespace: ebank-local
+  labels:
+    app: ebank-kafka
+    tier: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ebank-kafka
+  template:
+    metadata:
+      labels:
+        app: ebank-kafka
+        tier: infra
+    spec:
+      containers:
+        - name: kafka
+          image: apache/kafka:3.7.1
+          ports:
+            - containerPort: 9092
+              name: client
+          env:
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            - name: KAFKA_LISTENERS
+              value: "PLAINTEXT://:9092,CONTROLLER://:9093"
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://ebank-kafka:9092"
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: "1@localhost:9093"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "PLAINTEXT"
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+            - name: KAFKA_LOG_RETENTION_HOURS
+              value: "168"
+          readinessProbe:
+            exec:
+              command:
+                - /opt/kafka/bin/kafka-broker-api-versions.sh
+                - --bootstrap-server
+                - localhost:9092
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 15
+            failureThreshold: 6
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits:   { cpu: "500m", memory: "1Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ebank-kafka
+  namespace: ebank-local
+  labels:
+    app: ebank-kafka
+    tier: infra
+spec:
+  type: ClusterIP
+  selector:
+    app: ebank-kafka
+  ports:
+    - port: 9092
+      targetPort: 9092
+      name: client
+
+---
+# ── DNS aliases — docker-compose hostnames that point to K8s services ──────────
+# The transaction service application-docker.yml uses docker-compose hostnames
+# (mongodb, kafka, redis). These alias services make them resolve without image rebuild.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: ebank-local
+spec:
+  type: ClusterIP
+  selector:
+    app: ebank-mongodb
+  ports:
+    - port: 27017
+      targetPort: 27017
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: ebank-local
+spec:
+  type: ClusterIP
+  selector:
+    app: ebank-kafka
+  ports:
+    - port: 9092
+      targetPort: 9092
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: ebank-local
+spec:
+  type: ClusterIP
+  selector:
+    app: ebank-redis
+  ports:
+    - port: 6379
+      targetPort: 6379

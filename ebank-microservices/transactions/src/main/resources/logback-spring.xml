@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- Read from Spring environment — populated before any log line is emitted -->
+    <springProperty scope="context" name="SERVICE_NAME" source="spring.application.name" defaultValue="ebank-service"/>
+    <springProperty scope="context" name="LOKI_URL"     source="loki.url"                defaultValue="http://loki:3100/loki/api/v1/push"/>
+
+    <!-- ================================================================
+         LOCAL / TEST — colored, human-readable console
+         %X{traceId} will be populated once Micrometer Tracing is added (step 3)
+    ================================================================ -->
+    <springProfile name="local,test">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <pattern>%boldGreen(%d{dd-MM-yyyy HH:mm:ss.SSS}) %highlight(%-5level) %magenta([%thread]) --- %logger{36} [%X{traceId:-no-trace}] : %replace(%msg){'[\r\n]', ''}%nopex%n%boldRed(%throwable)</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- ================================================================
+         DOCKER / RECF / PROD — logfmt console + push to Loki
+         Labels (low cardinality): service, level, env  → used for log stream selection
+         Message (logfmt)         : traceId, spanId, logger  → used for querying
+    ================================================================ -->
+    <springProfile name="docker,recf,prod">
+
+        <!-- Structured console so `docker logs` / `kubectl logs` are also parseable -->
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <pattern>level=%-5level service=${SERVICE_NAME} traceId=%X{traceId:-none} spanId=%X{spanId:-none} logger=%logger{36} | %replace(%msg){'[\r\n]', ''}%nopex%n</pattern>
+            </encoder>
+        </appender>
+
+        <!--
+            Loki4j appender — batches log lines and pushes them via HTTP.
+            Uses a single background thread internally (no AsyncAppender needed).
+        -->
+        <appender name="LOKI" class="com.github.loki4j.logback.Loki4jAppender">
+            <http>
+                <url>${LOKI_URL}</url>
+                <!-- Send batch every second or when 1 000 lines accumulated -->
+                <batchTimeoutMs>1000</batchTimeoutMs>
+                <batchMaxItems>1000</batchMaxItems>
+            </http>
+            <format>
+                <!-- Labels — kept intentionally low-cardinality for Loki performance -->
+                <label>
+                    <pattern>service=${SERVICE_NAME},level=%level,env=docker</pattern>
+                </label>
+                <!-- Message — logfmt key=value, Loki can parse and filter on each field -->
+                <message>
+                    <pattern>level=%-5level traceId=%X{traceId:-none} spanId=%X{spanId:-none} thread=%thread logger=%logger{36} | %replace(%msg){'[\r\n]', ''}%nopex</pattern>
+                </message>
+                <sortByTime>true</sortByTime>
+            </format>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="LOKI"/>
+        </root>
+    </springProfile>
+
+</configuration>

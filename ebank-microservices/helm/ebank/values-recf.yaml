@@ -1,0 +1,103 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# values-recf.yaml — STAGING (recf) environment overrides
+# Goal: cheap, functional, smaller resources than prod
+# Apply ON TOP of values.yaml:
+#   helm upgrade --install ebank ./helm/ebank \
+#     -f helm/ebank/values.yaml \
+#     -f helm/ebank/values-recf.yaml \
+#     --namespace ebank-recf --create-namespace
+# ══════════════════════════════════════════════════════════════════════════════
+
+global:
+  env: "recf"
+  registry: "your-registry"
+  imageTag: "latest"           # staging always pulls latest main branch build
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+auth:
+  replicas: 1
+  autoscaling:
+    enabled: false             # save cost on staging — fixed replica count
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "300m", memory: "512Mi" }
+
+# ── Accounts ───────────────────────────────────────────────────────────────────
+accounts:
+  replicas: 1
+  autoscaling:
+    enabled: false
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "300m", memory: "512Mi" }
+
+# ── Transactions ───────────────────────────────────────────────────────────────
+transactions:
+  replicas: 1
+  autoscaling:
+    enabled: false
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "300m", memory: "512Mi" }
+
+# ── Notification ───────────────────────────────────────────────────────────────
+notification:
+  replicas: 1
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits:   { cpu: "150m", memory: "128Mi" }
+
+# ── Gateway ────────────────────────────────────────────────────────────────────
+gateway:
+  replicas: 1
+  autoscaling:
+    enabled: false
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "400m", memory: "512Mi" }
+  ingress:
+    host: api.recf.ebank.com   # staging domain
+    tls: false
+
+# ── Frontend ───────────────────────────────────────────────────────────────────
+frontend:
+  replicas: 1
+  resources:
+    requests: { cpu: "30m", memory: "32Mi" }
+    limits:   { cpu: "100m", memory: "64Mi" }
+  ingress:
+    host: recf.ebank.com
+    tls: false
+
+# ── Infrastructure — smaller disks on staging ──────────────────────────────────
+postgresql:
+  primary:
+    persistence:
+      size: 5Gi
+
+mongodb:
+  persistence:
+    size: 5Gi
+
+redis:
+  master:
+    persistence:
+      size: 2Gi
+
+kafka:
+  replicaCount: 1
+  persistence:
+    size: 5Gi
+
+# ── Resource Quotas ────────────────────────────────────────────────────────────
+quotas:
+  enabled: true
+  requests:    { cpu: "8",     memory: "16Gi" }
+  limits:      { cpu: "16",    memory: "32Gi" }
+  maxPods: "60"
+  maxServices: "40"
+  maxPVCs: "20"
+  defaultRequest:     { cpu: "100m",   memory: "128Mi"  }
+  defaultLimit:       { cpu: "500m",   memory: "768Mi"  }
+  maxPerContainer:    { cpu: "2",      memory: "2Gi"    }
+  maxPerPod:          { cpu: "4",      memory: "4Gi"    }

@@ -1,0 +1,34 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# observability-ingress.yaml — Expose Grafana via nginx Ingress
+#
+# Access:
+#   http://grafana.ebank.local   → Grafana (admin / see below for password)
+#
+# Get Grafana password:
+#   kubectl get secret loki-grafana -n ebank-local \
+#     -o jsonpath='{.data.admin-password}' | base64 -d
+#
+# Add to /etc/hosts (run once):
+#   echo "$(minikube ip) grafana.ebank.local" | sudo tee -a /etc/hosts
+# ══════════════════════════════════════════════════════════════════════════════
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana-ingress
+  namespace: ebank-local
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: grafana.ebank.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: loki-grafana
+                port:
+                  number: 80
