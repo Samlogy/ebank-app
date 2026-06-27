@@ -1,0 +1,93 @@
+# Minikube local development environment
+# Simplified configuration for local testing without external dependencies.
+#
+# Usage:
+#   helm upgrade --install ebank-monolith ./helm \
+#     -f helm/values-minikube.yaml \
+#     --set image.tag=1.0.0
+
+image:
+  repository: ebank-monolith
+  tag: "1.0.0"
+  pullPolicy: Never  # Use local Docker image in Minikube
+
+# Single replica for local testing
+replicaCount: 1
+
+# Disable autoscaling in local dev
+autoscaling:
+  enabled: false
+
+# Disable PDB in single-node cluster
+podDisruptionBudget:
+  enabled: false
+
+# Minimal resources for local testing
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "1Gi"
+
+# Use NodePort for easy access from host
+service:
+  type: NodePort
+  port: 80
+
+# Disable Ingress; use NodePort instead
+ingress:
+  enabled: false
+
+# No anti-affinity in single-node cluster
+affinity: {}
+
+# Disable Vault for local testing - use direct environment config
+spring:
+  profile: minikube
+
+# Disable Network Policies for local testing
+networkPolicy:
+  enabled: false
+
+# Relaxed probe settings for local development
+livenessProbe:
+  initialDelaySeconds: 120
+  periodSeconds: 10
+  failureThreshold: 3
+  timeoutSeconds: 5
+
+readinessProbe:
+  initialDelaySeconds: 90
+  periodSeconds: 5
+  failureThreshold: 3
+  timeoutSeconds: 5
+
+startupProbe:
+  failureThreshold: 60
+  periodSeconds: 5
+
+# Don't mount Vault AppRole secret
+vault:
+  host: ""
+  scheme: http
+  envId: ""
+
+# Inject datasource and Redis config directly as env vars.
+# Spring Boot 4 evaluates ${PLACEHOLDER:default} expressions from the OS
+# environment first — higher priority than any profile YAML file.
+# Without these, the ${SPRING_DATASOURCE_URL:localhost:5432} default wins.
+extraEnv:
+  - name: SPRING_DATASOURCE_URL
+    value: "jdbc:postgresql://postgres:5432/ebank"
+  - name: SPRING_DATASOURCE_USERNAME
+    value: "ebank_user"
+  - name: SPRING_DATASOURCE_PASSWORD
+    value: "changeme"
+  - name: SPRING_REDIS_HOST
+    value: "redis"
+  - name: SPRING_REDIS_PORT
+    value: "6379"
+  - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+    value: "update"

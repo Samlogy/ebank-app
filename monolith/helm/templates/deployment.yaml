@@ -88,15 +88,19 @@ spec:
           # are never stored in plaintext in the chart or in CI logs.
           env:
             # Activates application-{profile}.yaml which contains:
-            #   spring.config.import: "vault://"
+            #   spring.config.import: "vault://" (or empty for minikube)
             # triggering Vault KV import at startup.
             - name: SPRING_PROFILES_ACTIVE
               value: {{ .Values.spring.profile | quote }}
             - name: SERVER_PORT
               value: {{ .Values.server.port | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.vault.host }}
             # Vault connection — non-secret, defined in environment values files
             - name: VAULT_HOST
-              value: {{ required "vault.host must be set (e.g. in values-dev.yaml or values-prod.yaml)" .Values.vault.host | quote }}
+              value: {{ .Values.vault.host | quote }}
             - name: VAULT_PORT
               value: {{ .Values.vault.port | quote }}
             - name: VAULT_SCHEME
@@ -117,6 +121,7 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.vault.approleSecretName }}
                   key: VAULT_SECRET_ID
+            {{- end }}
 
           # ── Resources ────────────────────────────────────────────────────
           resources:

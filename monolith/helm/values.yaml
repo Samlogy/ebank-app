@@ -47,6 +47,16 @@ vault:
 spring:
   profile: prod     # activates application-{profile}.yaml → spring.config.import vault://
 
+# ── Extra environment variables ───────────────────────────────────────────────
+# Injected verbatim into the container env. Use in non-Vault environments
+# (e.g. minikube) to supply datasource/redis config that would otherwise come
+# from Vault. Env vars override YAML property placeholders unconditionally.
+# Example:
+#   extraEnv:
+#     - name: SPRING_DATASOURCE_URL
+#       value: "jdbc:postgresql://postgres:5432/ebank"
+extraEnv: []
+
 # ── Container port ────────────────────────────────────────────────────────────
 server:
   port: 8080

@@ -1,39 +1,18 @@
 # Profile: prod
-# Activated by: SPRING_PROFILES_ACTIVE=prod  (CI/CD pipeline for production deployments)
+# Activated by: SPRING_PROFILES_ACTIVE=prod  (default for Docker)
 #
-# All config (datasource, jwt, admin, logging, etc.) is loaded from Vault at:
-#   secret/e-bank/monolith/${VAULT_ENV_ID:E1}/config
+# In production with Vault:
+# - Set VAULT_ENABLED=true
+# - Provide VAULT_HOST, VAULT_ROLE_ID, VAULT_SECRET_ID
+# - Config is loaded from: secret/e-bank/monolith/${VAULT_ENV_ID:E1}/config
 #
-# Required environment variables:
-#   VAULT_HOST       — Vault server hostname
-#   VAULT_ROLE_ID    — AppRole role-id (semi-public, identifies the app)
-#   VAULT_SECRET_ID  — AppRole secret-id (rotate regularly, inject at deploy time)
-#
-# Optional:
-#   VAULT_PORT       — defaults to 8200
-#   VAULT_SCHEME     — defaults to https
-#   VAULT_ENV_ID     — defaults to E1
+# Default (Docker without Vault): Uses environment variables directly
+# - VAULT_ENABLED=false (default)
+# - All config via .env file
 
 spring:
   config:
-    import: "vault://"
-  cloud:
-    vault:
-      enabled: true
-      host: ${VAULT_HOST}
-      port: ${VAULT_PORT:8200}
-      scheme: ${VAULT_SCHEME:https}
-      authentication: APPROLE
-      app-role:
-        role-id: ${VAULT_ROLE_ID}
-        secret-id: ${VAULT_SECRET_ID}
-      kv:
-        enabled: true
-        backend: secret
-        default-context: "e-bank/monolith/${VAULT_ENV_ID:E1}/config"
-        backend-version: 2
-      connection-timeout: 5000
-      read-timeout: 15000
+    import: ""
 
   # Spring Boot Admin client — enabled in prod; credentials injected via docker-compose / CI env vars
   boot:

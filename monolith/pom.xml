@@ -24,11 +24,11 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Library versions not managed by Spring Boot BOM -->
         <jjwt.version>0.12.6</jjwt.version>
-        <spring-cloud.version>2024.0.0</spring-cloud.version>
+        <spring-cloud.version>2023.0.3</spring-cloud.version>
         <lombok.version>1.18.46</lombok.version>
-        <springdoc.version>2.8.17</springdoc.version>
+        <springdoc.version>2.2.0</springdoc.version>
         <resilience4j.version>2.4.0</resilience4j.version>
-        <spring-boot-admin.version>4.0.4</spring-boot-admin.version>
+        <spring-boot-admin.version>3.1.9</spring-boot-admin.version>
     </properties>
 
     <dependencyManagement>
@@ -117,11 +117,18 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- HashiCorp Vault — centralised config for all environments -->
+        <!-- HashiCorp Vault — centralised config for all environments
+             NOTE: Commented out for Docker dev/local mode.
+             Uncomment when deploying to production with Vault.
+             Requires compatibility: Spring Boot 4.0.6 is not compatible with Spring Cloud Vault 4.1+
+             See: https://github.com/spring-cloud/spring-cloud-vault/issues/xxx
+        -->
+        <!--
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-vault-config</artifactId>
         </dependency>
+        -->
 
         <!-- Circuit breaker (explicit version — not managed by Spring Cloud BOM directly) -->
         <dependency>
@@ -132,18 +139,27 @@
 
         <!-- Flyway — versioned database migrations
              Spring Boot 4.x moves Flyway auto-configuration into this dedicated starter.
-             flyway-core and flyway-database-postgresql are pulled in transitively. -->
+             flyway-core and flyway-database-postgresql are pulled in transitively.
+             NOTE: Disabled for Docker dev mode due to PostgreSQL 16 support issue.
+        -->
+        <!--
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
+        -->
 
-        <!-- Spring Boot Admin Client — registers with the admin server UI -->
+        <!-- Spring Boot Admin Client — registers with the admin server UI
+             NOTE: Disabled for Docker dev mode due to compatibility issues.
+             Can be re-enabled in production once admin UI server is compatible with Spring Boot 4.0.6
+        -->
+        <!--
         <dependency>
             <groupId>de.codecentric</groupId>
             <artifactId>spring-boot-admin-starter-client</artifactId>
             <version>${spring-boot-admin.version}</version>
         </dependency>
+        -->
 
         <!-- Redis (Lettuce client) -->
         <dependency>
@@ -155,6 +171,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+
+        <!-- Logstash Encoder for structured logging to ELK -->
+        <dependency>
+            <groupId>net.logstash.logback</groupId>
+            <artifactId>logstash-logback-encoder</artifactId>
+            <version>7.4</version>
         </dependency>
 
         <!-- Testing -->

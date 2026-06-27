@@ -1,0 +1,54 @@
+# Profile: minikube
+# Local Kubernetes development environment
+# Activated by: SPRING_PROFILES_ACTIVE=minikube
+
+spring:
+  config:
+    import: ""  # No Vault in local dev
+
+  datasource:
+    url: jdbc:postgresql://postgres:5432/ebank
+    username: ebank_user
+    password: changeme
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 20
+
+  data:
+    redis:
+      host: redis
+      port: 6379
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 3600000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,loggers
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.ebank: DEBUG
