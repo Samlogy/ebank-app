@@ -1,8 +1,10 @@
 # Documentation
 
-## Config Setup
+## Config Setup / API / Testing
 
-How to setup Environments (install & config):
+```sh
+
+## How to setup Environments (install & config):
 
 how to install java & maven on debian:
 https://greenwebpage.com/community/how-to-install-java-on-debian-12/
@@ -13,7 +15,7 @@ https://code.visualstudio.com/docs/java/java-spring-boot
 
 ## Accounts API
 
-**POST - Create Account**
+POST - Create Account
 
 curl -X POST http://localhost:8080/api/accounts \
   -H "Content-Type: application/json" \
@@ -28,17 +30,17 @@ curl -X POST http://localhost:8080/api/accounts \
     "status": "ACTIVE"
   }' | jq .
 
-**GET - Fetch All Accounts**
+GET - Fetch All Accounts
 
 curl -X GET http://localhost:8080/api/accounts \
   -H "Content-Type: application/json" | jq .
 
-**GET - Fetch Account by ID (Replace 1 with actual ID)**
+GET - Fetch Account by ID (Replace 1 with actual ID)
 
 curl -X GET http://localhost:8080/api/accounts/1 \
   -H "Content-Type: application/json" | jq .
 
-**PUT - Update Account (Replace 1 with actual ID)**
+PUT - Update Account (Replace 1 with actual ID)
 
 curl -X PUT http://localhost:8080/api/accounts/1 \
   -H "Content-Type: application/json" \
@@ -53,25 +55,25 @@ curl -X PUT http://localhost:8080/api/accounts/1 \
     "status": "ACTIVE"
   }' | jq .
 
-**DELETE - Delete Account (Replace 1 with actual ID)**
+DELETE - Delete Account (Replace 1 with actual ID)
 curl -X DELETE http://localhost:8080/api/accounts/1 \
   -H "Content-Type: application/json"
 
-### **Transactions API:**
+### Transactions API:
 
-**GET toutes les transactions**
+GET toutes les transactions
 
 curl -X GET http://localhost:8083/api/transactions
 
-**GET une transaction par ID**
+GET une transaction par ID
 
 curl -X GET http://localhost:8083/api/transactions/{id}
 
-**GET transactions d'un compte**
+GET transactions d'un compte
 
 curl -X GET http://localhost:8083/api/transactions/account/{accountId}
 
-**POST créer une transaction (TRANSFER)**
+POST créer une transaction (TRANSFER)
 
 curl -X POST http://localhost:8083/api/transactions \
   -H "Content-Type: application/json" \
@@ -83,7 +85,7 @@ curl -X POST http://localhost:8083/api/transactions \
     "description": "Virement mensuel"
   }'
 
-**POST créer un dépôt**
+POST créer un dépôt
 
 curl -X POST http://localhost:8083/api/transactions \
   -H "Content-Type: application/json" \
@@ -94,7 +96,7 @@ curl -X POST http://localhost:8083/api/transactions \
     "description": "Dépôt initial"
   }'
 
-**POST créer un retrait**
+POST créer un retrait
 
 curl -X POST http://localhost:8083/api/transactions \
   -H "Content-Type: application/json" \
@@ -104,34 +106,34 @@ curl -X POST http://localhost:8083/api/transactions \
     "type": "WITHDRAWAL"
   }'
 
-**swagger API:**
+swagger API:
 
 access  all service documentation:
 http://localhost:8081/swagger-ui/index.html
 
-**Java Melody:** (monitoring)
+Java Melody: (monitoring)
 
 JavaMelody is a lightweight performance monitoring tool for Java applications. It helps track memory usage, SQL queries, HTTP requests, and more in real-time via a simple web UI.
 http://localhost:8081/monitoring
 check these metrics:
 Memory Usage, Database Query Performance, Slow HTTP Requests, Garbage Collection Performance.
 
-**Spring ADMIN**
+Spring ADMIN
 
 access to spring admin
 http://localhost:8081/admin
 
 #### Testing
 
-**Unit Test (ONLY):**
+Unit Test (ONLY):
 
 mvn clean test
 
-**Unit + integration Tests + coverage:**
+Unit + integration Tests + coverage:
 
 mvn clean test
 
-**Check coverage:**
+Check coverage:
 
 xdg-open target/site/jacoco/index.html
 file:///home/sam/Desktop/ebank/accounts/target/site/jacoco/index.html
@@ -143,7 +145,7 @@ curl http://localhost:8080/actuator/health
 
 ### AUTH service
 
-**Test 1 Register:**
+Test 1 Register:
 
 curl -s -X POST http://localhost:8080/api/auth/register \
   -H "Content-Type: application/json" \
@@ -153,7 +155,7 @@ curl -s -X POST http://localhost:8080/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"bob","email":"bob@test.com","password":"Secret123!"}' | jq
 
-**Test Login:**
+Test Login:
 
 TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
   -H "Content-Type: application/json" \
@@ -163,38 +165,41 @@ echo $TOKEN
 curl -s http://localhost:8080/api/accounts \
   -H "Authorization: Bearer $TOKEN" | jq
 
-**Logout:**
+Logout:
 
 curl -s -X POST http://localhost:8080/api/auth/logout \
   -H "Authorization: Bearer $TOKEN"
 
-**Test error 401:**
+Test error 401:
 
 curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/accounts \
   -H "Authorization: Bearer $TOKEN"
 
-**Validation error format:**
+Validation error format:
 
 curl -s -X POST http://localhost:8080/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email":"bad"}' | jq
 
-### Config server
+````
 
+## Docker / Docker compose
+
+```sh
 docker-compose up --build
 
-**Verify Config Server is serving config**
+Verify Config Server is serving config
 
 curl http://localhost:8888/gateway/docker
 curl http://localhost:8888/auth-service/docker
 curl http://localhost:8888/accounts-service/docker
 curl http://localhost:8888/transaction-service/docker
 
-**Verify Vault secrets were seeded**
+Verify Vault secrets were seeded
 
 curl -H "X-Vault-Token: root" http://localhost:8200/v1/secret/data/ebank/auth-service
 
-**Verify each service picked up its config**
+Verify each service picked up its config
 
 curl http://localhost:8080/actuator/health   # gateway
 curl http://localhost:8081/actuator/health   # auth
@@ -210,19 +215,19 @@ root (token)
 
 ### Notification service
 
-**lauch services**
+lauch services
 
 docker compose up
 
-**test notification service up**
+test notification service up
 
 curl http://localhost:3002/health
 
-**check logs notification service:**
+check logs notification service:
 
 docker logs notification_service
 
-**Kafka UI:**
+Kafka UI:
 
 Via Kafka UI (http://localhost:8090) → Topics → notification-events → Produce message :
 {
@@ -233,7 +238,7 @@ Via Kafka UI (http://localhost:8090) → Topics → notification-events → Prod
   "occurredAt": "2026-04-04T12:00:00Z"
 }
 
-**check emails:**
+check emails:
 
 Open http://localhost:8025 → email appear there.
 
@@ -241,7 +246,7 @@ Open http://localhost:8025 → email appear there.
 
 docker compose up --build
 
-**Auth via gateway:**
+Auth via gateway:
 
 curl -s -X POST http://localhost:8080/api/auth/register \
   -H "Content-Type: application/json" \
@@ -258,10 +263,10 @@ curl http://localhost:8080/api/accounts \
 curl http://localhost:8080/api/transactions \
   -H "Authorization: Bearer $TOKEN"
 
-**notifications:**
+notifications:
 http://localhost:8025
 
-**kafka ui:**
+kafka ui:
 
 Via Kafka UI (http://localhost:8090) → Topics → notification-events → Produce message :
 {
@@ -272,13 +277,13 @@ Via Kafka UI (http://localhost:8090) → Topics → notification-events → Prod
   "occurredAt": "2026-04-04T12:00:00Z"
 }
 
-**vault:**
+vault:
 http://localhost:8200
 
 curl http://localhost:8081/actuator/health  # auth
 curl http://localhost:8082/actuator/health  # accounts
 curl http://localhost:8083/actuator/health  # transactions
-
+``
 
 ## Minikube version:
 
