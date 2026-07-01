@@ -1,0 +1,75 @@
+<div class="fixed inset-0 z-50 flex items-center justify-center">
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" (click)="close.emit()"></div>
+  <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+    <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="text-slate-900 font-semibold text-lg">{{ title }}</h2>
+      <button (click)="close.emit()" class="text-slate-400 hover:text-slate-600">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+    <form (ngSubmit)="handleSubmit()" class="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
+      <div *ngIf="error" class="px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+        {{ error }}
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Account Number *</label>
+          <input required name="accountNumber" [(ngModel)]="form.accountNumber"
+            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Holder Name *</label>
+          <input required name="accountHolderName" [(ngModel)]="form.accountHolderName"
+            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Email *</label>
+          <input required type="email" name="email" [(ngModel)]="form.email"
+            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Phone Number *</label>
+          <input required name="phoneNumber" [(ngModel)]="form.phoneNumber"
+            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Account Type *</label>
+          <select required name="accountType" [(ngModel)]="form.accountType"
+            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option *ngFor="let t of accountTypes" [value]="t">{{ t }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Balance *</label>
+          <input required type="number" min="0" step="0.01" name="balance" [(ngModel)]="form.balance"
+            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Status *</label>
+          <select required name="status" [(ngModel)]="form.status"
+            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option *ngFor="let s of accountStatuses" [value]="s">{{ s }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Address</label>
+          <input name="address" [(ngModel)]="form.address"
+            class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+      </div>
+      <div class="flex justify-end gap-3 pt-2">
+        <button type="button" (click)="close.emit()"
+          class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+          Cancel
+        </button>
+        <button type="submit" [disabled]="loading"
+          class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition-colors flex items-center gap-2">
+          <span *ngIf="loading" class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white"></span>
+          Save
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
