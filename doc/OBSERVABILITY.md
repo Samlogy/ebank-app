@@ -8,10 +8,10 @@
 
 ```mermaid
 graph LR
-    App["Spring Boot App\n:8080"] -->|metrics /actuator/prometheus| Prometheus
+    App["Spring Boot App:8080"] -->|metrics /actuator/prometheus| Prometheus
     App -->|OTLP gRPC :4317| Tempo
     App -->|structured logs| Loki
-    App -->|register + actuator pull| SBA["Spring Boot Admin\n:8090"]
+    App -->|register + actuator pull| SBA["Spring Boot Admin:8090"]
 
     Prometheus --> Grafana
     Tempo       --> Grafana
