@@ -17,4 +17,13 @@ export const config = {
     authToken: process.env.TWILIO_AUTH_TOKEN || '',
     fromNumber: process.env.TWILIO_FROM_NUMBER || '',
   },
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD || undefined,
+    // How long a "message already processed" marker is kept. Must comfortably
+    // outlast any realistic Kafka redelivery window (consumer crash + restart,
+    // rebalance, etc.) — see docs/caching section for the reasoning.
+    dedupeTtlSeconds: parseInt(process.env.NOTIFICATION_DEDUPE_TTL_SECONDS || '86400', 10),
+  },
 };

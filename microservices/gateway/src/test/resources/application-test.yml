@@ -1,0 +1,13 @@
+spring:
+  config:
+    activate:
+      on-profile: test
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+
+# Test-only value — never used outside the "test" profile.
+jwt:
+  secret: test-only-secret-not-used-outside-the-test-profile-0123456789
