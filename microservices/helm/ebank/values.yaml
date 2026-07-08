@@ -190,6 +190,10 @@ notification:
     port: "1025"
     from: "noreply@ebank.com"
 
+  # How long a "message already processed" marker is kept in Redis — must
+  # outlast any realistic Kafka redelivery window (crash + restart, rebalance).
+  dedupeTtlSeconds: 86400
+
 # ──────────────────────────────────────────────────────────────────────────────
 # GATEWAY — Spring Cloud Gateway (sole external entry point)
 # WHY high maxReplicas: gateway is the bottleneck for ALL traffic — scale aggressively
