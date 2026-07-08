@@ -133,34 +133,27 @@ The admin client URL/username/password/service-base-url for `dev` (E2) and `prod
 
 The admin server ships the same multi-stage `Dockerfile` pattern as the main app and can be deployed as its own Helm release/Deployment behind a ClusterIP Service. See [doc/KUBERNETES.md](doc/KUBERNETES.md) for the Helm chart layout; point `SPRING_BOOT_ADMIN_URL` / `SPRING_APP_BASE_URL` at the in-cluster Service DNS names (e.g. `http://ebank-admin.ebank.svc.cluster.local:8090`).
 
-### 3.8 ⚠️ Known caveat — the client dependency ships commented out
+### 3.8 Client self-registration
 
-Open `monolith/pom.xml` and you'll find:
+`monolith/pom.xml` pins `<spring-boot-admin.version>4.0.4</spring-boot-admin.version>` (matching `monolith/admin/pom.xml` and the Spring Boot `4.0.6` parent) and includes:
 
 ```xml
-<!-- Spring Boot Admin Client — registers with the admin server UI
-     NOTE: Disabled for Docker dev mode due to compatibility issues.
-     Can be re-enabled in production once admin UI server is compatible with Spring Boot 4.0.6
--->
-<!--
 <dependency>
     <groupId>de.codecentric</groupId>
     <artifactId>spring-boot-admin-starter-client</artifactId>
     <version>${spring-boot-admin.version}</version>
 </dependency>
--->
 ```
 
-All the YAML wiring (`spring.boot.admin.client.*`, docker-compose env vars, Vault seed keys) is in place, but **without this dependency on the classpath the app will never call `/instances` and will not appear in the Admin UI** — the properties above are consumed by the client starter's auto-configuration, which is absent while the dependency stays commented out.
+Combined with the `spring.boot.admin.client.*` properties in `application*.yaml`, this makes the app call the server's `/instances` endpoint on startup and heartbeat every ~10s. Verified locally: on startup the app logs
 
-To enable real client registration:
+```
+o.s.b.a.c.r.DefaultApplicationRegistrator : Application registered itself as <instance-id>
+```
 
-1. In `monolith/pom.xml`, bump `<spring-boot-admin.version>` from `3.1.9` to **`4.0.4`** — the same version already used by `monolith/admin/pom.xml` — since `3.1.9` targets Spring Boot 3.x and this project's parent is Spring Boot `4.0.6`.
-2. Uncomment the `spring-boot-admin-starter-client` dependency block.
-3. `./mvnw clean package` and rebuild the app image.
-4. Confirm registration: the app should appear under **Applications** in the Admin UI within ~10 seconds of startup, and `docker logs ebank_app` should show a `DiscoveryClientApplicationRegistrator` log line.
+and `curl -u admin:admin -H "Accept: application/json" http://localhost:8090/instances` returns the instance with `"name": "ebank-monolith"` and `"registered": true`. It also then appears under **Applications** in the Admin UI within ~10 seconds of startup.
 
-Until this is done, you can still exercise every actuator-backed feature below directly against the app's own `/actuator/**` endpoints (see [ADMIN_QUICK_REFERENCE.md](ADMIN_QUICK_REFERENCE.md)) — you just won't see it inside the Admin server's UI.
+> An earlier revision of this project shipped this dependency commented out (pinned to Spring Boot Admin `3.1.9`, incompatible with the Spring Boot `4.0.6` parent). If you're diffing against an older checkout and registration isn't working, confirm the version and dependency block above match.
 
 ---
 
@@ -207,7 +200,7 @@ Click an application in the list, then use the tabs across the top of its detail
 | **Loggers** | `loggers` | ✅ | ✅ | ✅ | Change any package's log level (e.g. `com.ebank` → `DEBUG`, or `org.hibernate.SQL` → `TRACE`) **at runtime, no restart**. Resets on app restart unless also set in YAML. |
 | **Caches** | `caches` | ✅ | ✅ | ✅ | Lists each Spring Cache name (`accounts`, `account`, `transactions`) backed by Redis, with a button to **clear** an individual cache on demand. |
 | **Thread dump** | `threaddump` | ✅ | ✅ | ❌ | One-click snapshot of every live thread and its stack — use this to diagnose a request that's hanging (see [ADMIN_MONITORING_SCENARIOS.md](ADMIN_MONITORING_SCENARIOS.md)). |
-| **Flyway** | `flyway` | ✅ | ✅ | ❌ | Migration history: which scripts ran, when, and whether any are pending/failed. *(Note: the `flyway-core` starter itself ships commented out in `pom.xml` for the same Spring Boot 4 compatibility reason as the admin client — see the dependency block above `spring-boot-admin-starter-client`. Re-enable both together if you need this tab populated.)* |
+| **Flyway** | `flyway` | ✅ | ✅ | ❌ | Migration history: which scripts ran, when, and whether any are pending/failed. *(Note: the `flyway-core` starter itself ships commented out in `pom.xml` — see the commented block above the admin client dependency. Re-enable it if you need this tab populated.)* |
 | **Scheduled tasks** | `scheduledtasks` | ✅ | ✅ | ❌ | Lists every `@Scheduled` job (cron/fixed-rate) and its next/last execution — this project has no scheduled jobs today, so expect an empty list until one is added. |
 
 `prod` intentionally exposes only `health,info,metrics,prometheus,loggers` (see `application-prod.yaml` and `vault/seeds/E1.json`) to minimize the attack surface of the internal actuator API in production — the ❌ tabs above will simply show "endpoint not available" there.
@@ -249,7 +242,7 @@ Spring Boot Admin can push a notification (email, Slack, Microsoft Teams, PagerD
 3. Restrict network access to the Admin UI and to `/actuator/**` using a Kubernetes `NetworkPolicy` or security group — do not rely on the login page alone.
 4. Keep prod's actuator exposure list minimal (`health,info,metrics,prometheus,loggers` — already the default in `application-prod.yaml`); don't widen it to match dev.
 5. Rotate `ADMIN_UI_PASSWORD` / `SPRING_BOOT_ADMIN_PASSWORD` the same way you rotate any other credential in Vault (see [doc/VAULT_CONFIG.md](doc/VAULT_CONFIG.md)).
-6. If you enable client self-registration (section 3.8), monitor the Admin UI's Journal for unexpected `OFFLINE` flaps — they usually mean a network policy or DNS issue between the app and admin pods, not an app crash.
+6. Monitor the Admin UI's Journal for unexpected `OFFLINE` flaps — they usually mean a network policy or DNS issue between the app and admin pods, not an app crash.
 
 ---
 

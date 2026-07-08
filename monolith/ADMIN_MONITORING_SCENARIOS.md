@@ -69,7 +69,7 @@ Real-world debugging playbooks. Find your symptom, follow the steps. Every step 
 
 ## Scenario 7 — "Flyway migration failed on deploy"
 
-> Requires the Flyway starter to be enabled (it ships commented out in `pom.xml` for the same Spring Boot 4 compatibility reason as the admin client — see [SPRING_BOOT_ADMIN_GUIDE.md § 3.8](SPRING_BOOT_ADMIN_GUIDE.md#38-️-known-caveat--the-client-dependency-ships-commented-out)).
+> Requires the Flyway starter to be enabled — it currently ships commented out in `pom.xml` for a Spring Boot 4 / PostgreSQL 16 compatibility reason (see [SPRING_BOOT_ADMIN_GUIDE.md § 6](SPRING_BOOT_ADMIN_GUIDE.md#6-feature-by-feature-guide), Flyway row).
 
 1. **Flyway tab** (or `curl $BASE/actuator/flyway`) → shows every migration script, its checksum, and status (`Success`/`Failed`/`Pending`).
 2. **Health tab** → a failed migration usually takes the whole app health check down, since Flyway blocks context startup by default.

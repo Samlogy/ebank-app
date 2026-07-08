@@ -75,4 +75,4 @@ cd monolith
 # → http://localhost:8090   login: admin / admin
 ```
 
-If it's not showing your app as registered, read [SPRING_BOOT_ADMIN_GUIDE.md § 3.8](SPRING_BOOT_ADMIN_GUIDE.md#38-️-known-caveat--the-client-dependency-ships-commented-out) — there's a known, documented reason and a fix.
+If it's not showing your app as registered, read [SPRING_BOOT_ADMIN_GUIDE.md § 3.8](SPRING_BOOT_ADMIN_GUIDE.md#38-client-self-registration) or the troubleshooting table in [ADMIN_QUICK_REFERENCE.md](ADMIN_QUICK_REFERENCE.md#troubleshooting).

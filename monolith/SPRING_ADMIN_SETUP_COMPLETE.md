@@ -13,7 +13,7 @@ Inventory of every file and configuration key that makes up the Spring Boot Admi
 | Docker Compose wiring | ✅ Working — `admin` service + `app` env vars in `docker-compose.yml` |
 | Vault-backed config (dev/prod) | ✅ Working — `spring.boot.admin.client.*` keys in `vault/seeds/E1.json` / `E2.json` |
 | Documentation | ✅ Complete — see table below |
-| **App → Admin server self-registration** | ⚠️ **Not active out of the box** — `spring-boot-admin-starter-client` is commented out in `monolith/pom.xml`. All the YAML/env/Vault wiring is in place and ready; only the Maven dependency needs uncommenting (and its version bumping from `3.1.9` to `4.0.4` to match Spring Boot 4). See [SPRING_BOOT_ADMIN_GUIDE.md § 3.8](SPRING_BOOT_ADMIN_GUIDE.md#38-️-known-caveat--the-client-dependency-ships-commented-out). |
+| **App → Admin server self-registration** | ✅ **Active** — `spring-boot-admin-starter-client` 4.0.4 is enabled in `monolith/pom.xml`. Verified locally: the app logs `Application registered itself as <id>` on startup and appears in `GET /instances` on the admin server with `"registered": true`. |
 
 ---
 
@@ -33,7 +33,7 @@ Inventory of every file and configuration key that makes up the Spring Boot Admi
 
 | File | Relevant change |
 |---|---|
-| `pom.xml` | `spring-boot-admin.version` property (`3.1.9`); client starter dependency present but **commented out** |
+| `pom.xml` | `spring-boot-admin.version` property (`4.0.4`, matching the admin server and the Spring Boot 4 parent); `spring-boot-admin-starter-client` dependency active |
 | `src/main/resources/application.yaml` | Base `spring.boot.admin.client.*` config (disabled by default); actuator exposure list; `health.probes.enabled=true`; `env.show-values=never`; `loggers.enabled=true`; `caches.enabled=true` |
 | `src/main/resources/application-local.yaml` | Admin client enabled, points at `localhost:8090` |
 | `src/main/resources/application-dev.yaml` | Admin client enabled via env vars, full actuator surface + `prometheus` |
@@ -67,17 +67,15 @@ Inventory of every file and configuration key that makes up the Spring Boot Admi
 
 ## Known limitations (by design or pending follow-up)
 
-1. **Client self-registration is off by default** — see the Status table above. All config is ready; only the Maven dependency is missing.
-2. **Flyway starter also ships commented out** in `pom.xml` for the same Spring Boot 4 compatibility note — the Flyway tab in Admin will show nothing until it's re-enabled.
-3. **No notifier configured** — status-change notifications (email/Slack/etc.) are not set up; the Admin UI's own Journal is the only history today.
-4. **No `@Scheduled` jobs exist yet** — the Scheduled Tasks tab will be empty until one is added to the codebase.
-5. **HTTP exchanges / recent-traces tab and Log file tab are not enabled** — both require additional actuator endpoints/beans not configured today (see [SPRING_BOOT_ADMIN_GUIDE.md § 7](SPRING_BOOT_ADMIN_GUIDE.md#7-enabling-extra-features-optional)).
+1. **Flyway starter still ships commented out** in `pom.xml` for a separate Spring Boot 4 / PostgreSQL 16 compatibility note — the Flyway tab in Admin will show nothing until it's re-enabled. Schema is currently created via `spring.jpa.hibernate.ddl-auto` instead (`update` in Docker Compose / dev, `validate` — schema must pre-exist — if you run the app standalone via Maven).
+2. **No notifier configured** — status-change notifications (email/Slack/etc.) are not set up; the Admin UI's own Journal is the only history today.
+3. **No `@Scheduled` jobs exist yet** — the Scheduled Tasks tab will be empty until one is added to the codebase.
+4. **HTTP exchanges / recent-traces tab and Log file tab are not enabled** — both require additional actuator endpoints/beans not configured today (see [SPRING_BOOT_ADMIN_GUIDE.md § 7](SPRING_BOOT_ADMIN_GUIDE.md#7-enabling-extra-features-optional)).
 
 ---
 
 ## Suggested next steps
 
-- [ ] Bump `spring-boot-admin.version` to `4.0.4` in `monolith/pom.xml` and uncomment the client starter dependency to activate real self-registration.
-- [ ] Re-enable the Flyway starter alongside it if migration history in the Admin UI is needed.
+- [ ] Re-enable the Flyway starter if migration history in the Admin UI is needed.
 - [ ] Change `ADMIN_UI_PASSWORD` / `SPRING_BOOT_ADMIN_PASSWORD` away from `admin`/`admin` before any shared or public deployment.
 - [ ] Decide whether a notifier (Slack/email/PagerDuty) is worth adding for production status-change alerts.

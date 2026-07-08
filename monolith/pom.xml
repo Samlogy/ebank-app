@@ -28,7 +28,7 @@
         <lombok.version>1.18.46</lombok.version>
         <springdoc.version>2.2.0</springdoc.version>
         <resilience4j.version>2.4.0</resilience4j.version>
-        <spring-boot-admin.version>3.1.9</spring-boot-admin.version>
+        <spring-boot-admin.version>4.0.4</spring-boot-admin.version>
     </properties>
 
     <dependencyManagement>
@@ -149,17 +149,12 @@
         </dependency>
         -->
 
-        <!-- Spring Boot Admin Client — registers with the admin server UI
-             NOTE: Disabled for Docker dev mode due to compatibility issues.
-             Can be re-enabled in production once admin UI server is compatible with Spring Boot 4.0.6
-        -->
-        <!--
+        <!-- Spring Boot Admin Client — registers this app with the admin server UI -->
         <dependency>
             <groupId>de.codecentric</groupId>
             <artifactId>spring-boot-admin-starter-client</artifactId>
             <version>${spring-boot-admin.version}</version>
         </dependency>
-        -->
 
         <!-- Redis (Lettuce client) -->
         <dependency>
