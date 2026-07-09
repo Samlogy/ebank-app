@@ -805,7 +805,7 @@ Tous les services exposent un endpoint de santé :
 | Transactions | `GET http://localhost:8083/actuator/health` |
 | Config Server | `GET http://localhost:8888/actuator/health` |
 | Chatbot | `GET http://localhost:3001/health` |
-| Notifications | `GET http://localhost:3002/health` |
+| Notifications | `GET http://localhost:3002/health` (métriques : `GET http://localhost:3002/metrics`) |
 
 ### Spring Actuator
 
@@ -857,38 +857,32 @@ http://localhost:8025
 - **Corrélation :** Le Gateway injecte un `X-Trace-Id` dans chaque requête → propagé dans les logs de chaque service
 - **Niveaux :** `DEBUG` (local) → `INFO` (docker/recf) → `WARN` (prod)
 
-### Métriques (Améliorations possibles)
+### Métriques, tracing & logs centralisés
 
-Le projet est prêt pour une stack d'observabilité complète :
+La stack d'observabilité tourne par défaut avec `docker-compose.yml` — pas d'étape d'activation à faire :
 
 ```
-Prometheus  →  Scrape /actuator/metrics (Micrometer)
-Grafana     →  Dashboards (latences, taux d'erreur, saturation)
-Jaeger/Zipkin → Tracing distribué (OpenTelemetry)
-ELK/Loki    →  Centralisation des logs
+Prometheus  →  Scrape /actuator/prometheus (Java) et /metrics (Node) toutes les 15s
+Grafana     →  http://localhost:3000 — dashboards + datasources Prometheus/Tempo/Loki auto-provisionnés
+Tempo       →  Traces distribuées OTLP (Micrometer Tracing côté Java, OpenTelemetry SDK côté Node)
+Loki        →  Logs par défaut (labels bas-cardinalité, requêtable en LogQL)
 ```
 
-Pour l'activer, ajouter dans `docker-compose.yml` :
-```yaml
-services:
-  prometheus:
-    image: prom/prometheus
-    volumes:
-      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+| Service | Métriques | Traces (OTLP → Tempo `:4318`) |
+|---|---|---|
+| gateway / auth / accounts / transaction-service | `/actuator/prometheus` (Micrometer) | `micrometer-tracing-bridge-otel` |
+| notification-service | `/metrics` (`prom-client`) | `@opentelemetry/sdk-node` + auto-instrumentations |
 
-  grafana:
-    image: grafana/grafana
-    ports:
-      - "3003:3000"
+Chaque log de chaque service porte `traceId`/`spanId` — dans Grafana, un clic sur un span dans Tempo ouvre directement les logs corrélés dans Loki.
+
+**ELK (recherche full-text, optionnel) :** Filebeat lit les logs stdout des 5 conteneurs applicatifs (`*_service`) et les envoie à Logstash → Elasticsearch → Kibana, en plus de Loki — aucune modification de code nécessaire (les services logguent déjà en JSON/logfmt sur stdout).
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.elk.yml up -d
+# → Kibana: http://localhost:5601   (index pattern: ebank-microservices-*)
 ```
 
-Et dans les `pom.xml` Java :
-```xml
-<dependency>
-    <groupId>io.micrometer</groupId>
-    <artifactId>micrometer-registry-prometheus</artifactId>
-</dependency>
-```
+**Loki vs ELK :** Loki est plus léger (index uniquement les labels) et suffit pour le dev/staging corrélé aux métriques/traces. ELK apporte la recherche plein texte et les agrégations — utile pour l'audit/compliance, au prix d'un cluster Elasticsearch à opérer.
 
 ---
 
