@@ -884,6 +884,8 @@ docker compose -f docker-compose.yml -f docker-compose.elk.yml up -d
 
 **Loki vs ELK :** Loki est plus léger (index uniquement les labels) et suffit pour le dev/staging corrélé aux métriques/traces. ELK apporte la recherche plein texte et les agrégations — utile pour l'audit/compliance, au prix d'un cluster Elasticsearch à opérer.
 
+**Documentation complète :** voir [`doc/OBSERVABILITY.md`](./OBSERVABILITY.md) — architecture détaillée, démarrage Docker Compose *et* Minikube, et un guide pratique pour diagnostiquer les problèmes réels (latence, erreurs, memory leaks, lag Kafka, etc.) avec cette stack.
+
 ---
 
 ## Deployment
