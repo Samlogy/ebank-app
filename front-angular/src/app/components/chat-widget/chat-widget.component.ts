@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common'
+
 import { Component, ElementRef, OnDestroy, ViewChild, signal } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 
@@ -23,7 +23,7 @@ function nextId(): string {
 
 @Component({
     selector: 'app-chat-widget',
-    imports: [CommonModule, FormsModule],
+    imports: [FormsModule],
     templateUrl: './chat-widget.component.html'
 })
 export class ChatWidgetComponent implements OnDestroy {

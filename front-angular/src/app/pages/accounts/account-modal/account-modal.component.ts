@@ -1,11 +1,11 @@
-import { CommonModule } from '@angular/common'
+
 import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import type { AccountPayload } from '../../../core/models/types'
 
 @Component({
     selector: 'app-account-modal',
-    imports: [CommonModule, FormsModule],
+    imports: [FormsModule],
     templateUrl: './account-modal.component.html'
 })
 export class AccountModalComponent implements OnInit {

@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common'
+
 import { Component, EventEmitter, Input, OnInit, Output } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import type { TransactionPayload } from '../../../core/models/types'
@@ -13,7 +13,7 @@ const emptyForm: TransactionPayload = {
 
 @Component({
     selector: 'app-transaction-modal',
-    imports: [CommonModule, FormsModule],
+    imports: [FormsModule],
     templateUrl: './transaction-modal.component.html'
 })
 export class TransactionModalComponent implements OnInit {

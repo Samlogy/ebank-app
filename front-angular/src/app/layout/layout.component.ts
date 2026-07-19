@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common'
+
 import { Component } from '@angular/core'
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router'
 import { AuthService } from '../core/services/auth.service'
@@ -12,7 +12,7 @@ interface NavItem {
 
 @Component({
     selector: 'app-layout',
-    imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, ChatWidgetComponent],
+    imports: [RouterOutlet, RouterLink, RouterLinkActive, ChatWidgetComponent],
     templateUrl: './layout.component.html'
 })
 export class LayoutComponent {

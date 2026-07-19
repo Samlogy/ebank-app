@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common'
+
 import { HttpErrorResponse } from '@angular/common/http'
 import { Component } from '@angular/core'
 import { FormsModule } from '@angular/forms'
@@ -9,7 +9,7 @@ type Tab = 'login' | 'register'
 
 @Component({
     selector: 'app-login',
-    imports: [CommonModule, FormsModule],
+    imports: [FormsModule],
     templateUrl: './login.component.html'
 })
 export class LoginComponent {
