@@ -4,10 +4,9 @@ import { FormsModule } from '@angular/forms'
 import type { AccountPayload } from '../../../core/models/types'
 
 @Component({
-  selector: 'app-account-modal',
-  standalone: true,
-  imports: [CommonModule, FormsModule],
-  templateUrl: './account-modal.component.html',
+    selector: 'app-account-modal',
+    imports: [CommonModule, FormsModule],
+    templateUrl: './account-modal.component.html'
 })
 export class AccountModalComponent implements OnInit {
   @Input() title = ''

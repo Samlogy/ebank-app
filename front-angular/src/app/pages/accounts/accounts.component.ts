@@ -17,10 +17,9 @@ const emptyForm: AccountPayload = {
 }
 
 @Component({
-  selector: 'app-accounts',
-  standalone: true,
-  imports: [CommonModule, AccountModalComponent],
-  templateUrl: './accounts.component.html',
+    selector: 'app-accounts',
+    imports: [CommonModule, AccountModalComponent],
+    templateUrl: './accounts.component.html'
 })
 export class AccountsComponent implements OnInit {
   accounts: AccountResponse[] = []

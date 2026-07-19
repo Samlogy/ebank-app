@@ -6,10 +6,9 @@ import type { TransactionPayload, TransactionResponse } from '../../core/models/
 import { TransactionModalComponent } from './transaction-modal/transaction-modal.component'
 
 @Component({
-  selector: 'app-transactions',
-  standalone: true,
-  imports: [CommonModule, TransactionModalComponent],
-  templateUrl: './transactions.component.html',
+    selector: 'app-transactions',
+    imports: [CommonModule, TransactionModalComponent],
+    templateUrl: './transactions.component.html'
 })
 export class TransactionsComponent implements OnInit {
   transactions: TransactionResponse[] = []

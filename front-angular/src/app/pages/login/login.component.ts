@@ -8,10 +8,9 @@ import { AuthService } from '../../core/services/auth.service'
 type Tab = 'login' | 'register'
 
 @Component({
-  selector: 'app-login',
-  standalone: true,
-  imports: [CommonModule, FormsModule],
-  templateUrl: './login.component.html',
+    selector: 'app-login',
+    imports: [CommonModule, FormsModule],
+    templateUrl: './login.component.html'
 })
 export class LoginComponent {
   tab: Tab = 'login'

@@ -12,10 +12,9 @@ const emptyForm: TransactionPayload = {
 }
 
 @Component({
-  selector: 'app-transaction-modal',
-  standalone: true,
-  imports: [CommonModule, FormsModule],
-  templateUrl: './transaction-modal.component.html',
+    selector: 'app-transaction-modal',
+    imports: [CommonModule, FormsModule],
+    templateUrl: './transaction-modal.component.html'
 })
 export class TransactionModalComponent implements OnInit {
   @Input() loading = false

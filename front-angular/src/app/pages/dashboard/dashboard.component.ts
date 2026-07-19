@@ -8,10 +8,9 @@ import { TransactionsService } from '../../core/services/transactions.service'
 import type { AccountResponse, TransactionResponse } from '../../core/models/types'
 
 @Component({
-  selector: 'app-dashboard',
-  standalone: true,
-  imports: [CommonModule],
-  templateUrl: './dashboard.component.html',
+    selector: 'app-dashboard',
+    imports: [CommonModule],
+    templateUrl: './dashboard.component.html'
 })
 export class DashboardComponent implements OnInit {
   accounts: AccountResponse[] = []

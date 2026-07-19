@@ -11,10 +11,9 @@ interface NavItem {
 }
 
 @Component({
-  selector: 'app-layout',
-  standalone: true,
-  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, ChatWidgetComponent],
-  templateUrl: './layout.component.html',
+    selector: 'app-layout',
+    imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, ChatWidgetComponent],
+    templateUrl: './layout.component.html'
 })
 export class LayoutComponent {
   readonly navItems: NavItem[] = [

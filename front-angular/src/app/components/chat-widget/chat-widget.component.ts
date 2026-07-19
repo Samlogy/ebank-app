@@ -22,10 +22,9 @@ function nextId(): string {
 }
 
 @Component({
-  selector: 'app-chat-widget',
-  standalone: true,
-  imports: [CommonModule, FormsModule],
-  templateUrl: './chat-widget.component.html',
+    selector: 'app-chat-widget',
+    imports: [CommonModule, FormsModule],
+    templateUrl: './chat-widget.component.html'
 })
 export class ChatWidgetComponent implements OnDestroy {
   @ViewChild('bottomAnchor') bottomAnchor?: ElementRef<HTMLDivElement>
