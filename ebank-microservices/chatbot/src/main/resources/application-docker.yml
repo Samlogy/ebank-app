@@ -1,0 +1,22 @@
+# Docker Compose profile. All hosts resolve on the ebank-network.
+# Values here are overridable by environment variables set in docker-compose.yml.
+
+spring:
+  datasource:
+    url: ${CHATBOT_DB_URL:jdbc:postgresql://postgres:5432/chatbot_db}
+
+accounts:
+  service:
+    url: ${ACCOUNTS_SERVICE_URL:http://accounts-service:8082}
+transaction:
+  service:
+    url: ${TRANSACTION_SERVICE_URL:http://transaction-service:8083}
+
+management:
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://tempo:4318/v1/traces}
+
+logging:
+  level:
+    com.ebank.chatbot: INFO
