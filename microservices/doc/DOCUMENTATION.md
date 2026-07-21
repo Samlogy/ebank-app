@@ -45,7 +45,8 @@
 | TypeScript | 5.3.3 | Langage typé |
 | Express | 4.18.2 | Serveur HTTP |
 | KafkaJS | 2.2.4 | Kafka consumer (Notifications) |
-| LangChain.js | — | Orchestration LLM (Chatbot) |
+| Spring AI | 1.1.2 | Orchestration LLM du Chatbot (ChatClient, Tool Calling, RAG) |
+| pgvector | pg17 | Vector store du RAG Chatbot |
 | Nodemailer | 8.0.2 | Envoi d'emails |
 | Twilio SDK | 5.3.0 | SMS |
 
@@ -126,15 +127,18 @@ ebank/
 │   ├── pom.xml
 │   └── Dockerfile
 │
-├── chatbot/                     # Chatbot Service (Node.js + LangChain)
-│   ├── src/
-│   │   ├── langchain/             # chain.ts, tools.ts, mock-llm.ts
-│   │   ├── services/api.client.ts
-│   │   ├── sse/stream.ts
-│   │   ├── websocket/server.ts
-│   │   └── index.ts
-│   ├── package.json
-│   ├── tsconfig.json
+├── chatbot/                     # Chatbot Service (Spring Boot + Spring AI)
+│   ├── src/main/java/com/ebank/chatbot/
+│   │   ├── api/                   # ChatController (REST + SSE), DTOs, exception handler
+│   │   ├── config/                # ChatClient (tools + advisors RAG/mémoire), RestClients, CORS
+│   │   ├── tools/BankTools.java   # @Tool → accounts & transactions (Tool Calling)
+│   │   ├── rag/                   # DocumentIngestionService (ETL → pgvector)
+│   │   ├── service/               # ChatbotService
+│   │   └── web/                   # WebSocket /ws/chat
+│   ├── src/main/resources/
+│   │   ├── application*.yml
+│   │   └── rag-docs/              # Base de connaissances (procédures, *.md)
+│   ├── pom.xml
 │   └── Dockerfile
 │
 ├── notifications/               # Notification Service (Node.js + KafkaJS)
@@ -195,7 +199,7 @@ flowchart TD
         AUTH["Auth Service\n:8081\n(Spring Boot + Security)"]
         ACCOUNTS["Accounts Service\n:8082\n(Spring WebFlux + R2DBC)"]
         TRANS["Transaction Service\n:8083\n(Spring WebFlux + MongoDB)"]
-        CHATBOT["Chatbot Service\n:3001\n(Node.js + LangChain)"]
+        CHATBOT["Chatbot Service\n:3001\n(Spring Boot + Spring AI)"]
         NOTIF["Notification Service\n:3002\n(Node.js + KafkaJS)"]
     end
 
@@ -639,46 +643,56 @@ POST /api/transactions              → Créer une transaction
 
 ### 6. Chatbot Service (`:3001`)
 
-**Rôle :** Assistant IA bancaire. Répond aux questions des utilisateurs sur leurs comptes et transactions via HTTP, WebSocket ou Server-Sent Events. Orchestré par LangChain avec outil calling.
+**Rôle :** Assistant IA bancaire. Répond en langage naturel aux questions sur les comptes
+et transactions (**Tool Calling**) et sur les procédures complexes (**RAG**), via HTTP,
+SSE ou WebSocket. Orchestré par **Spring AI** (`ChatClient`).
+
+> 📖 Conception détaillée, diagrammes mermaid et guides de test (Docker Compose + Minikube) :
+> [`CHATBOT_DESIGN.md`](./CHATBOT_DESIGN.md).
 
 **Technologies :**
-- Node.js 20 + TypeScript
-- Express (HTTP + SSE)
-- LangChain.js (orchestration LLM)
-- WebSocket (`ws`)
-- PostgreSQL + pgvector (embeddings RAG)
+- Spring Boot 3.5 + Java 21
+- Spring AI 1.1 (`ChatClient`, Tool Calling, advisors RAG & mémoire)
+- LLM endpoint OpenAI-compatible (OpenAI / Groq / Ollama)
+- PostgreSQL + **pgvector** (vector store RAG)
+- SSE + WebSocket (streaming)
 
 **Endpoints :**
 ```
-POST /api/chat/message    → Chat HTTP request/response
+POST /api/chat            → Chat HTTP request/response
+POST /api/chat/stream     → Server-Sent Events (streaming)
 WS   /ws/chat             → Streaming WebSocket
-GET  /api/chat/stream     → Server-Sent Events
-GET  /health              → Santé du service
+GET  /actuator/health     → Santé du service
 ```
 
-**Outils LLM (Tool Calling) :**
-```typescript
+**Outils LLM (Tool Calling) — `BankTools` :**
+```java
 getAccountBalance(accountId)
-  → GET /api/accounts/{id}/balance    // Appelle Accounts Service
+  → GET /api/accounts/{id}                 // Accounts Service
 
 getRecentTransactions(accountId, limit)
-  → GET /api/transactions/account/{id} // Appelle Transaction Service
+  → GET /api/transactions/account/{id}     // Transaction Service
 ```
 
-**Flux d'exécution LangChain :**
-1. Construction du contexte (system prompt + historique)
-2. Appel LLM → peut inclure des tool calls
-3. Exécution des outils (si demandé)
-4. Réponse LLM enrichie des résultats d'outils
+**Flux d'exécution Spring AI :**
+1. `ChatClient` : system prompt + mémoire de session + advisor RAG + tools
+2. Le LLM décide d'appeler un tool (données live) et/ou d'utiliser le contexte RAG récupéré depuis pgvector
+3. Exécution des tools (REST) et/ou recherche par similarité (topK=4, seuil 0.5)
+4. Le LLM rédige la réponse finale, ancrée dans les données/documents
 5. Streaming token par token (SSE ou WS)
+
+**RAG — base de connaissances :** `src/main/resources/rag-docs/*.md`
+(virement international, contestation, blocage carte, KYC, plafonds, sécurité).
+Ingérée au démarrage (idempotente) : markdown → chunks → embeddings → pgvector.
 
 **Choix techniques :**
 | Choix | Justification |
 |-------|--------------|
-| LangChain.js | Abstraction LLM interchangeable (mock → GPT-4 → Claude) |
+| Spring AI ChatClient | Tool Calling typé + advisors RAG/mémoire + streaming, même stack Spring |
+| Tool Calling local | Service auto-portant (équivalent fonctionnel d'un client MCP) |
 | SSE + WebSocket | Deux modes de streaming selon le client |
-| pgvector | RAG contextuel sur les données bancaires |
-| Mock LLM en dev | Développement sans dépendance à une API LLM payante |
+| pgvector | RAG sans base vectorielle dédiée, réutilise Postgres |
+| LLM OpenAI-compatible | Branche OpenAI/Groq **ou** un Ollama local via `OPENAI_BASE_URL` |
 
 **Avantages :**
 - LLM swappable sans changer le code métier
@@ -686,14 +700,15 @@ getRecentTransactions(accountId, limit)
 - RAG permet des réponses contextualisées
 
 **Inconvénients :**
-- LLM mock limité (pas de vraie compréhension)
+- Nécessite une clé/endpoint LLM pour un chat pleinement fonctionnel
 - Sécurité des tool calls (accès aux données sensibles)
-- Coût en production si LLM externe (tokens)
+- Coût en production selon le LLM externe (tokens)
 
 **Améliorations possibles :**
-- Intégrer un vrai LLM (Claude API, OpenAI)
-- Guardrails de sécurité (PII masking, validation des outputs)
-- Mémoire conversationnelle persistante
+- Restreindre les tools au compte de l'utilisateur authentifié (contexte de sécurité)
+- Guardrails (PII masking, validation des outputs)
+- Mémoire conversationnelle persistante (Redis/JDBC) pour le multi-instance
+- Endpoint d'ingestion RAG à chaud + versioning des documents
 - Cache sémantique des réponses (embedding similarity)
 
 ---

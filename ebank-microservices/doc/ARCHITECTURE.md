@@ -161,21 +161,26 @@ DELETE /api/cards/{id}         → Supprimer
 ---
 
 ### Chatbot Service — Port 3001
-**Technologie :** Node.js 20 · TypeScript · LangChain.js · WebSocket (ws) · SSE
+**Technologie :** Spring Boot 3.5 · Java 21 · **Spring AI 1.1** · PostgreSQL/**pgvector** · SSE · WebSocket
+**Deux capacités derrière un seul `ChatClient` :**
+- **Tool Calling** → le LLM appelle des fonctions Java qui interrogent les API REST des autres services (données live).
+- **RAG** → les questions sur les procédures complexes sont répondues à partir d'une base documentaire indexée dans pgvector (`QuestionAnswerAdvisor`).
+
 **Flux d'une requête :**
-1. Client Angular envoie un message via WebSocket
-2. Gateway route vers chatbot-service
-3. LangChain analyse l'intent
-4. Tool Calling → appels REST vers les autres services
-5. Mock LLM génère une réponse (streamée via SSE)
+1. Client envoie un message (REST `/api/chat`, SSE `/api/chat/stream` ou WebSocket `/ws/chat`)
+2. Gateway route vers chatbot-service (routes publiques déjà configurées)
+3. Le `ChatClient` applique : system prompt, mémoire de session, advisor RAG et tools
+4. Selon l'intent : Tool Calling (REST) **et/ou** récupération RAG (pgvector)
+5. Le LLM (endpoint OpenAI-compatible) génère la réponse (streamée via SSE/WS)
 
 **Tools disponibles :**
 | Tool | Service appelé |
 |------|---------------|
 | `getAccountBalance` | accounts-service |
 | `getRecentTransactions` | transaction-service |
-| `getCardStatus` | card-service |
-| `blockCard` | card-service |
+
+> Détails complets, diagrammes mermaid et guides de test (Docker Compose + Minikube) :
+> voir [`CHATBOT_DESIGN.md`](./CHATBOT_DESIGN.md).
 
 ---
 
@@ -314,16 +319,23 @@ DELETE /api/cards/{id}         → Supprimer
 
 ---
 
-### 8. Node.js pour Chatbot & Notifications
-**Choix :** Node.js + TypeScript plutôt que Java pour ces deux services.
-✅ LangChain.js très mature pour le chatbot (RAG, Tool Calling, streaming)
-✅ Event-loop Node.js = streaming SSE naturel sans threads bloquants
-✅ KafkaJS léger et simple pour le consumer de notifications
-✅ Partage du TypeScript avec Angular frontend
-✅ Itération rapide (pas de compilation Java)
-❌ Moins de types stricts qu'en Java (même avec TypeScript strict)
-❌ Écosystème enterprise moins mature (logging, tracing, health checks)
-❌ Gestion des erreurs async plus complexe (unhandled rejections)
+### 8. Spring AI pour le Chatbot, Node.js pour les Notifications
+**Choix :** le Chatbot est en **Spring Boot + Spring AI** (même stack que le cœur de la
+plateforme) ; le service Notifications reste en Node.js + KafkaJS.
+
+**Chatbot — Spring AI :**
+✅ `ChatClient` unifié : Tool Calling typé + advisors RAG/mémoire + streaming
+✅ **VectorStore pgvector natif** → RAG sans service vectoriel dédié
+✅ Observabilité identique aux services Java (Actuator, tracing OTLP, Loki)
+✅ Endpoint LLM OpenAI-compatible → OpenAI, Groq ou **Ollama** local au choix
+❌ Nécessite une clé/endpoint LLM pour un chat pleinement fonctionnel
+❌ Épinglé sur Spring Boot 3.5 (compatibilité GA Spring AI 1.1), service isolé
+
+**Notifications — Node.js :**
+✅ KafkaJS léger et simple pour le consumer d'événements
+✅ Event-loop = envoi email/SMS/push non bloquant
+✅ Partage du TypeScript avec le frontend
+❌ Écosystème enterprise (tracing, health checks) moins mature qu'en Java
 
 ---
 

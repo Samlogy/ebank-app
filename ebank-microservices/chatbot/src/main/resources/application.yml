@@ -1,0 +1,82 @@
+server:
+  port: ${PORT:3001}
+
+spring:
+  application:
+    name: chatbot-service
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
+
+  # ── PostgreSQL (pgvector) — RAG vector store lives here ──────────────────────
+  datasource:
+    url: ${CHATBOT_DB_URL:jdbc:postgresql://localhost:5432/chatbot_db}
+    username: ${CHATBOT_DB_USER:postgres}
+    password: ${CHATBOT_DB_PASSWORD:postgres}
+
+  # ── Spring AI ────────────────────────────────────────────────────────────────
+  ai:
+    # OpenAI-compatible endpoint. Point base-url at OpenAI, Groq, Ollama
+    # (http://ollama:11434/v1) or any compatible gateway. The key is read from env
+    # so it is never committed. With the placeholder the app still boots; chat calls
+    # return a friendly "temporarily unavailable" until a real key is provided.
+    openai:
+      api-key: ${OPENAI_API_KEY:sk-placeholder-set-OPENAI_API_KEY}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${CHATBOT_MODEL:gpt-4o-mini}
+          temperature: 0.2
+      embedding:
+        options:
+          model: ${CHATBOT_EMBEDDING_MODEL:text-embedding-3-small}
+    vectorstore:
+      pgvector:
+        initialize-schema: true      # auto-creates the vector extension + vector_store table
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 1536             # text-embedding-3-small = 1536 dims
+
+# ── RAG knowledge base ─────────────────────────────────────────────────────────
+chatbot:
+  rag:
+    ingest-on-startup: ${CHATBOT_RAG_INGEST:true}
+
+# ── Downstream banking services (Tool Calling targets) ──────────────────────────
+accounts:
+  service:
+    url: ${ACCOUNTS_SERVICE_URL:http://localhost:8082}
+transaction:
+  service:
+    url: ${TRANSACTION_SERVICE_URL:http://localhost:8083}
+
+# ── Observability ────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,refresh,env
+  endpoint:
+    health:
+      show-details: ALWAYS
+  metrics:
+    tags:
+      service: chatbot-service
+      env: ${SPRING_PROFILES_ACTIVE:local}
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+
+springdoc:
+  api-docs:
+    path: /chatbot-api-docs
+  swagger-ui:
+    path: /chatbot-api-ui
+
+logging:
+  level:
+    com.ebank.chatbot: ${LOG_LEVEL_APP:DEBUG}
+    org.springframework.ai: INFO

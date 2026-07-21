@@ -304,27 +304,45 @@ services:
       start_period: 45s
 
   # ================================================================
-  # CHATBOT SERVICE — Node.js + LangChain (mock LLM)
-  # WHY: LangChain.js mature, SSE/WebSocket naturel à l'event-loop Node.js
-  # PROs: streaming LLM natif, Tool Calling, partage TypeScript avec Angular
-  # CONs: moins de types stricts, écosystème enterprise moins mature
+  # CHATBOT SERVICE — Spring Boot + Spring AI (Tool Calling + RAG/pgvector)
+  # WHY: même stack Spring Boot que le reste de la plateforme ; Spring AI apporte
+  #      ChatClient, tool-calling et un VectorStore pgvector natif pour le RAG.
+  # PROs: RAG sur pgvector sans service dédié, tool-calling typé, observabilité
+  #       identique aux autres services (Actuator, OTLP, Loki).
+  # CONs: nécessite une clé LLM (OPENAI_API_KEY) ou un endpoint compatible (Ollama).
   # ================================================================
-  # chatbot-service:
-  #   build: ./chatbot
-  #   container_name: chatbot_service
-  #   ports:
-  #     - "3001:3001"
-  #   environment:
-  #     NODE_ENV: production
-  #     PORT: 3001
-  #     ACCOUNTS_SERVICE_URL: http://accounts-service:8082
-  #     TRANSACTION_SERVICE_URL: http://transaction-service:8083
-  #     POSTGRES_URL: postgresql://postgres:postgres@postgres:5432/chatbot_db
-  #   networks:
-  #     - ebank-network
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
+  chatbot-service:
+    build: ./chatbot
+    container_name: chatbot_service
+    ports:
+      - "3001:3001"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      PORT: 3001
+      CHATBOT_DB_URL: jdbc:postgresql://postgres:5432/chatbot_db
+      CHATBOT_DB_USER: postgres
+      CHATBOT_DB_PASSWORD: postgres
+      ACCOUNTS_SERVICE_URL: http://accounts-service:8082
+      TRANSACTION_SERVICE_URL: http://transaction-service:8083
+      OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      LOKI_URL: http://loki:3100/loki/api/v1/push
+      # ── LLM backend — override with your own key (OpenAI/Groq) or point at Ollama ──
+      # export OPENAI_API_KEY=sk-... before `docker compose up`
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-placeholder-set-OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com}
+      CHATBOT_MODEL: ${CHATBOT_MODEL:-gpt-4o-mini}
+      CHATBOT_EMBEDDING_MODEL: ${CHATBOT_EMBEDDING_MODEL:-text-embedding-3-small}
+    networks:
+      - ebank-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3001/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ================================================================
   # NOTIFICATION SERVICE — Node.js + KafkaJS
@@ -370,7 +388,9 @@ services:
   # PROs: intégrité référentielle, pgvector extension, R2DBC + JDBC support
   # CONs: scalabilité horizontale complexe, instance partagée en dev (à séparer en prod)
   postgres:
-    image: postgres:17-alpine
+    # pgvector image = PostgreSQL 17 + the `vector` extension preinstalled,
+    # required by the chatbot RAG store. Drop-in replacement for postgres:17.
+    image: pgvector/pgvector:pg17
     container_name: ebank_postgres
     restart: always
     environment:

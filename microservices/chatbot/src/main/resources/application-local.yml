@@ -1,0 +1,23 @@
+# Local development profile.
+# Run PostgreSQL with the pgvector extension available, e.g.:
+#   docker run -d --name pgvector -p 5432:5432 \
+#     -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=chatbot_db pgvector/pgvector:pg17
+#
+# Then export a real key (or point OPENAI_BASE_URL at a local Ollama):
+#   export OPENAI_API_KEY=sk-...
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/chatbot_db
+
+accounts:
+  service:
+    url: http://localhost:8082
+transaction:
+  service:
+    url: http://localhost:8083
+
+management:
+  otlp:
+    tracing:
+      endpoint: http://localhost:4318/v1/traces
