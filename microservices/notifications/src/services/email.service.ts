@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config';
 import { TransactionEvent } from '../types/events';
+import { notificationSendDurationSeconds, notificationsSentTotal } from '../metrics';
 
 const transporter = nodemailer.createTransport({
   host: config.smtp.host,
@@ -9,13 +10,22 @@ const transporter = nodemailer.createTransport({
 });
 
 export async function sendEmail(to: string, subject: string, body: string): Promise<void> {
-  await transporter.sendMail({
-    from: config.smtp.from,
-    to,
-    subject,
-    html: body,
-  });
-  console.log(`[EMAIL] Sent to ${to}: ${subject}`);
+  const stopTimer = notificationSendDurationSeconds.startTimer({ channel: 'email' });
+  try {
+    await transporter.sendMail({
+      from: config.smtp.from,
+      to,
+      subject,
+      html: body,
+    });
+    notificationsSentTotal.inc({ channel: 'email', status: 'success' });
+    console.log(`[EMAIL] Sent to ${to}: ${subject}`);
+  } catch (err) {
+    notificationsSentTotal.inc({ channel: 'email', status: 'failure' });
+    throw err;
+  } finally {
+    stopTimer();
+  }
 }
 
 export function buildTransactionEmail(event: TransactionEvent): { subject: string; body: string } {

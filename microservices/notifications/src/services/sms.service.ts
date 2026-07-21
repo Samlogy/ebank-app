@@ -1,5 +1,6 @@
 import twilio from 'twilio';
 import { config } from '../config';
+import { notificationSendDurationSeconds, notificationsSentTotal } from '../metrics';
 
 const twilioEnabled =
   config.twilio.accountSid &&
@@ -12,19 +13,25 @@ const twilioClient = twilioEnabled
 
 export async function sendSms(to: string, message: string): Promise<void> {
   if (!twilioClient) {
+    notificationsSentTotal.inc({ channel: 'sms', status: 'mocked' });
     console.log(`[SMS MOCK] To: ${to} | Message: ${message}`);
     return;
   }
 
+  const stopTimer = notificationSendDurationSeconds.startTimer({ channel: 'sms' });
   try {
     await twilioClient.messages.create({
       body: message,
       from: config.twilio.fromNumber,
       to,
     });
+    notificationsSentTotal.inc({ channel: 'sms', status: 'success' });
     console.log(`[SMS] Sent to ${to}`);
   } catch (err) {
+    notificationsSentTotal.inc({ channel: 'sms', status: 'failure' });
     console.error(`[SMS] Failed to send to ${to}:`, err);
+  } finally {
+    stopTimer();
   }
 }
 

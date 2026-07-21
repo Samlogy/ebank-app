@@ -81,6 +81,12 @@ spec:
               value: "{{ include "ebank.kafkaHost" . }}"
             - name: ENV_PROFILE
               value: {{ .Values.global.env | quote }}
+            # Tracing sink — see k8s/tempo-local.yaml (local/minikube). In
+            # recf/prod, either deploy the same manifest or point this at your
+            # cluster's Tempo/collector; the OTLP exporter is fire-and-forget,
+            # so pods start fine even if nothing is listening on the other end.
+            - name: TEMPO_HOST
+              value: "tempo.{{ .Release.Namespace }}.svc.cluster.local"
           command:
             - /bin/sh
             - -c
@@ -140,9 +146,10 @@ spec:
                   "management.endpoint.health.show-details": "ALWAYS",
                   "management.metrics.tags.service": "auth-service",
                   "management.metrics.tags.env": "%s",
-                  "management.tracing.sampling.probability": "1.0"
+                  "management.tracing.sampling.probability": "1.0",
+                  "management.otlp.tracing.endpoint": "http://%s:4318/v1/traces"
                 }
-              }' "$PG_HOST" "$PG_HOST" "$REDIS_HOST" "$PROFILE" > /tmp/auth.json
+              }' "$PG_HOST" "$PG_HOST" "$REDIS_HOST" "$PROFILE" "$TEMPO_HOST" > /tmp/auth.json
               printf "  auth-service..."; kv_put "ebank/auth-service/$PROFILE" /tmp/auth.json
 
               # ── ACCOUNTS SERVICE ──────────────────────────────────────────
@@ -168,9 +175,10 @@ spec:
                   "management.endpoint.health.show-details": "ALWAYS",
                   "management.metrics.tags.service": "accounts-service",
                   "management.metrics.tags.env": "%s",
-                  "management.tracing.sampling.probability": "1.0"
+                  "management.tracing.sampling.probability": "1.0",
+                  "management.otlp.tracing.endpoint": "http://%s:4318/v1/traces"
                 }
-              }' "$PG_HOST" "$PG_HOST" "$REDIS_HOST" "$PROFILE" > /tmp/accounts.json
+              }' "$PG_HOST" "$PG_HOST" "$REDIS_HOST" "$PROFILE" "$TEMPO_HOST" > /tmp/accounts.json
               printf "  accounts-service..."; kv_put "ebank/accounts-service/$PROFILE" /tmp/accounts.json
 
               # ── TRANSACTION SERVICE ───────────────────────────────────────
@@ -187,9 +195,10 @@ spec:
                   "management.endpoint.health.show-details": "ALWAYS",
                   "management.metrics.tags.service": "transaction-service",
                   "management.metrics.tags.env": "%s",
-                  "management.tracing.sampling.probability": "1.0"
+                  "management.tracing.sampling.probability": "1.0",
+                  "management.otlp.tracing.endpoint": "http://%s:4318/v1/traces"
                 }
-              }' "$MONGO_HOST" "$KAFKA_HOST" "$REDIS_HOST" "$PROFILE" > /tmp/transactions.json
+              }' "$MONGO_HOST" "$KAFKA_HOST" "$REDIS_HOST" "$PROFILE" "$TEMPO_HOST" > /tmp/transactions.json
               printf "  transaction-service..."; kv_put "ebank/transaction-service/$PROFILE" /tmp/transactions.json
 
               # ── GATEWAY ───────────────────────────────────────────────────
@@ -207,9 +216,11 @@ spec:
                   "management.endpoints.web.exposure.include": "health,info,metrics,prometheus",
                   "management.endpoint.health.show-details": "ALWAYS",
                   "management.metrics.tags.service": "gateway",
-                  "management.metrics.tags.env": "%s"
+                  "management.metrics.tags.env": "%s",
+                  "management.tracing.sampling.probability": "1.0",
+                  "management.otlp.tracing.endpoint": "http://%s:4318/v1/traces"
                 }
-              }' "$REDIS_HOST" "$PROFILE" > /tmp/gateway.json
+              }' "$REDIS_HOST" "$PROFILE" "$TEMPO_HOST" > /tmp/gateway.json
               printf "  gateway..."; kv_put "ebank/gateway/$PROFILE" /tmp/gateway.json
 
               # ── NOTIFICATION SERVICE ──────────────────────────────────────

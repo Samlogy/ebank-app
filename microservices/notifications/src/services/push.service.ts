@@ -2,12 +2,14 @@
  * Push notification service — mock implementation.
  * In production, replace the body of sendPushNotification with a real FCM call.
  */
+import { notificationsSentTotal } from '../metrics';
 
 export async function sendPushNotification(
   userId: string,
   title: string,
   body: string,
 ): Promise<void> {
+  notificationsSentTotal.inc({ channel: 'push', status: 'mocked' });
   console.log(`[PUSH MOCK] UserId: ${userId} | Title: ${title} | Body: ${body}`);
 
   // In production: integrate Firebase Cloud Messaging (FCM)

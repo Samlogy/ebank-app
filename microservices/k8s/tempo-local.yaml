@@ -1,0 +1,146 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# tempo-local.yaml — Grafana Tempo (distributed tracing backend) for local/minikube
+#
+# WHY a plain manifest instead of a Helm chart:
+#   Same rationale as k8s/infra-local.yaml — no extra chart repo, no Bitnami
+#   rate limits, one file to read top-to-bottom.
+#
+# WHO sends traces here:
+#   auth/accounts/transactions/gateway (Micrometer Tracing OTLP exporter) and
+#   notification-service (OpenTelemetry SDK) — see helm/ebank/templates/
+#   vault-init-job.yaml (TEMPO_HOST) and notification-deployment.yaml
+#   (OTEL_EXPORTER_OTLP_ENDPOINT). Both point at "tempo:4318".
+#
+# WHO reads traces from here:
+#   Grafana, via the Tempo datasource provisioned by k8s/grafana-datasources.yaml
+#   (url: http://tempo.ebank-local.svc.cluster.local:3200) — the Service name
+#   below ("tempo") MUST match that URL.
+#
+# Deploy BEFORE the Helm chart (same stage as vault-dev.yaml / infra-local.yaml):
+#   kubectl apply -f k8s/tempo-local.yaml -n ebank-local
+#   kubectl wait --for=condition=ready pod -l app=tempo -n ebank-local --timeout=60s
+# ══════════════════════════════════════════════════════════════════════════════
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: ebank-local
+data:
+  tempo.yml: |
+    stream_over_http_enabled: true
+
+    server:
+      http_listen_port: 3200
+      log_level: info
+
+    # Accept traces via OTLP (both Micrometer Tracing and the OTel Node SDK
+    # default to OTLP; gRPC is what the Java services use, HTTP is what
+    # notification-service uses).
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: "0.0.0.0:4317"
+            http:
+              endpoint: "0.0.0.0:4318"
+
+    ingester:
+      max_block_duration: 5m
+
+    storage:
+      trace:
+        backend: local
+        wal:
+          path: /tmp/tempo/wal
+        local:
+          path: /tmp/tempo/blocks
+
+    compactor:
+      compaction:
+        block_retention: 24h
+
+    # NOTE: no metrics_generator here (unlike docker-compose's tempo.yml) —
+    # it remote_writes to Prometheus, which requires
+    # `--web.enable-remote-write-receiver` on the Prometheus server. That flag
+    # isn't set by a default kube-prometheus-stack install, so span-metrics/
+    # service-graph generation is left disabled for local/minikube rather than
+    # failing silently. Traces still work fully without it.
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: ebank-local
+  labels:
+    app: tempo
+    tier: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tempo
+  template:
+    metadata:
+      labels:
+        app: tempo
+        tier: infra
+    spec:
+      containers:
+        - name: tempo
+          image: grafana/tempo:2.4.0
+          args:
+            - -config.file=/etc/tempo/tempo.yml
+          ports:
+            - name: http
+              containerPort: 3200
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tempo
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+      volumes:
+        - name: config
+          configMap:
+            name: tempo-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Name MUST be "tempo" — matches TEMPO_HOST in vault-init-job.yaml,
+  # OTEL_EXPORTER_OTLP_ENDPOINT in notification-deployment.yaml, and the
+  # Tempo datasource URL in k8s/grafana-datasources.yaml.
+  name: tempo
+  namespace: ebank-local
+  labels:
+    app: tempo
+    tier: infra
+spec:
+  type: ClusterIP
+  selector:
+    app: tempo
+  ports:
+    - name: http
+      port: 3200
+      targetPort: http
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
