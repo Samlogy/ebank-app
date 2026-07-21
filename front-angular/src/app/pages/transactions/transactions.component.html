@@ -1,0 +1,83 @@
+<div>
+  <div class="mb-6 flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Transactions</h1>
+      <p class="text-slate-500 mt-1">All financial transactions</p>
+    </div>
+    <button
+      (click)="openCreateModal()"
+      class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+      >
+      + New Transaction
+    </button>
+  </div>
+
+  <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    @if (isLoading) {
+      <div class="flex justify-center py-20">
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+      </div>
+    }
+
+    @if (!isLoading && sorted.length === 0) {
+      <p class="text-slate-500 text-sm text-center py-16">
+        No transactions found.
+      </p>
+    }
+
+    @if (!isLoading && sorted.length > 0) {
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-slate-50 text-slate-500 text-left">
+              <th class="px-6 py-3 font-medium">Type</th>
+              <th class="px-6 py-3 font-medium">Amount</th>
+              <th class="px-6 py-3 font-medium">From → To</th>
+              <th class="px-6 py-3 font-medium">Description</th>
+              <th class="px-6 py-3 font-medium">Status</th>
+              <th class="px-6 py-3 font-medium">Date</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            @for (tx of sorted; track tx) {
+              <tr class="hover:bg-slate-50 transition-colors">
+                <td class="px-6 py-3">
+                  <span class="px-2 py-0.5 rounded-full text-xs font-medium" [ngClass]="typeColor(tx.type)">
+                    {{ tx.type }}
+                  </span>
+                </td>
+                <td class="px-6 py-3 font-semibold text-slate-900">
+                  {{ '$' + (tx.amount | number: '1.2-2') }}
+                </td>
+                <td class="px-6 py-3 text-slate-600 font-mono text-xs">
+                  {{ tx.fromAccountId }} → {{ tx.toAccountId }}
+                </td>
+                <td class="px-6 py-3 text-slate-500 max-w-xs truncate">
+                  {{ tx.description || '—' }}
+                </td>
+                <td class="px-6 py-3">
+                  <span class="px-2 py-0.5 rounded-full text-xs font-medium" [ngClass]="statusColor(tx.status)">
+                    {{ tx.status }}
+                  </span>
+                </td>
+                <td class="px-6 py-3 text-slate-500">
+                  {{ tx.createdAt | date: 'MM/dd/yyyy' }}
+                  <span class="text-slate-400 text-xs">{{ tx.createdAt | date: 'shortTime' }}</span>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+
+  @if (showModal) {
+    <app-transaction-modal
+      [loading]="modalLoading"
+      [error]="modalError"
+      (save)="createTransaction($event)"
+      (close)="closeModal()"
+    ></app-transaction-modal>
+  }
+</div>

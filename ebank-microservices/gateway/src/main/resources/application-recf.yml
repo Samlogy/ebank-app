@@ -1,9 +1,0 @@
-# Gateway — recf (staging) environment fallback
-# (authoritative config served by Config Server)
-server:
-  port: 8080
-
-logging:
-  level:
-    com.ebank.gateway: INFO
-    org.springframework.cloud.gateway: WARN

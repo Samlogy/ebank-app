@@ -7,6 +7,7 @@ import {
   sendPushNotification,
   buildTransactionPush,
 } from '../services/push.service';
+import { markIfNew } from '../cache/idempotency.service';
 import { kafkaMessagesConsumedTotal } from '../metrics';
 
 const TOPICS = {
@@ -100,8 +101,19 @@ async function handleNotificationEvent(raw: KafkaMessage): Promise<void> {
 // Router
 // ---------------------------------------------------------------------------
 
-async function processMessage({ topic, message }: EachMessagePayload): Promise<void> {
+async function processMessage({ topic, partition, message }: EachMessagePayload): Promise<void> {
+  // topic+partition+offset uniquely and permanently identifies this physical
+  // Kafka message, regardless of what's in its (possibly missing/duplicated)
+  // business payload — the right key for redelivery dedup. See
+  // cache/idempotency.service.ts for why this exists.
+  const dedupeKey = `${topic}:${partition}:${message.offset}`;
+
   try {
+    if (!(await markIfNew(dedupeKey))) {
+      console.log(`[KAFKA] Skipping already-processed message ${dedupeKey} (redelivery)`);
+      return;
+    }
+
     switch (topic) {
       case TOPICS.TRANSACTION_EVENTS:
         await handleTransactionEvent(message);
