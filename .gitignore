@@ -5,6 +5,8 @@
 # Environment — ne jamais committer
 .env
 
+front-angular/.angular
+
 **/target
 **/node_modules
 **/dist
