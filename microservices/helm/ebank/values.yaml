@@ -195,6 +195,56 @@ notification:
   dedupeTtlSeconds: 86400
 
 # ──────────────────────────────────────────────────────────────────────────────
+# CHATBOT SERVICE — Spring Boot + Spring AI (Tool Calling + RAG over pgvector)
+# WHY env-driven (not Vault): the only secret is the LLM API key, held in a K8s Secret.
+# Ships with its own pgvector Postgres (chatbot-pgvector) as the RAG store.
+# ──────────────────────────────────────────────────────────────────────────────
+chatbot:
+  enabled: true
+  image: ebank-chatbot
+  tag: ""
+  replicas: 1
+  port: 3001
+
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "700m"
+      memory: "1Gi"
+
+  probes:
+    liveness:
+      periodSeconds: 20
+    readiness:
+      periodSeconds: 10
+
+  # In-cluster URLs of the banking services the chatbot's tools call.
+  accountsServiceUrl: "http://ebank-accounts:8082"
+  transactionServiceUrl: "http://ebank-transactions:8083"
+  otlpEndpoint: "http://tempo:4318/v1/traces"
+  lokiUrl: "http://loki:3100/loki/api/v1/push"
+
+  # Dedicated pgvector RAG store (Database-per-Service).
+  pgvector:
+    image: "pgvector/pgvector:pg17"
+  db:
+    name: "chatbot_db"
+    user: "postgres"
+    password: "postgres"
+
+  # LLM backend. Create the Secret before/after install:
+  #   kubectl -n <ns> create secret generic ebank-chatbot-secrets \
+  #     --from-literal=openai-api-key=sk-REAL-KEY
+  llm:
+    baseUrl: "https://api.openai.com"
+    model: "gpt-4o-mini"
+    embeddingModel: "text-embedding-3-small"
+    apiKeySecretName: "ebank-chatbot-secrets"
+    apiKeySecretKey: "openai-api-key"
+
+# ──────────────────────────────────────────────────────────────────────────────
 # GATEWAY — Spring Cloud Gateway (sole external entry point)
 # WHY high maxReplicas: gateway is the bottleneck for ALL traffic — scale aggressively
 # ──────────────────────────────────────────────────────────────────────────────

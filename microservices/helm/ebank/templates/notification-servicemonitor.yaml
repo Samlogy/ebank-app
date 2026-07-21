@@ -1,0 +1,40 @@
+{{/*
+notification-servicemonitor.yaml — Tells kube-prometheus-stack to scrape
+notification-service's /metrics (prom-client), separate from
+servicemonitor.yaml because the Java services expose /actuator/prometheus
+on the same port name ("http") — one shared ServiceMonitor can't use two
+different paths for the same selector.
+
+REQUIRES: kube-prometheus-stack or prometheus-operator installed.
+*/}}
+{{- if and .Values.monitoring.enabled .Values.notification.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "ebank.fullname" . }}-notification
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: notification
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.monitoring.scrapeInterval }}
+      scrapeTimeout: {{ .Values.monitoring.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_service_label_app_kubernetes_io_component]
+          targetLabel: job
+          replacement: ${1}
+{{- end }}

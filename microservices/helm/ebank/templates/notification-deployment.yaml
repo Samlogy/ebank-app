@@ -88,6 +88,15 @@ spec:
               value: {{ .Values.redis.auth.password | quote }}
             - name: NOTIFICATION_DEDUPE_TTL_SECONDS
               value: {{ .Values.notification.dedupeTtlSeconds | default 86400 | quote }}
+            # Observability — see k8s/tempo-local.yaml (local/minikube).
+            # Both exporters are fire-and-forget: the pod starts fine even if
+            # Tempo/Loki aren't reachable, same as the Java services' OTLP export.
+            - name: OTEL_SERVICE_NAME
+              value: "notification-service"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://tempo.{{ .Release.Namespace }}.svc.cluster.local:4318/v1/traces"
+            - name: LOKI_URL
+              value: "http://loki.{{ .Release.Namespace }}.svc.cluster.local:3100/loki/api/v1/push"
 
           resources:
             {{- toYaml .Values.notification.resources | nindent 12 }}

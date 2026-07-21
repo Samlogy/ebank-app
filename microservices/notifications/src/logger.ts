@@ -1,4 +1,5 @@
 import pino from 'pino';
+import { trace } from '@opentelemetry/api';
 
 const SERVICE_NAME = 'notifications-service';
 const isProduction  = process.env.NODE_ENV === 'production';
@@ -25,7 +26,6 @@ const transport = isProduction
             host:   LOKI_URL,
             // Low-cardinality labels — same convention as Java logback-spring.xml
             labels: { service: SERVICE_NAME, env: 'docker' },
-            // Include traceId in the log line (populated by OpenTelemetry in step 3)
             replaceTimestamp: true,
             silenceErrors:    false,
           },
@@ -42,6 +42,15 @@ const transport = isProduction
       },
     });
 
+// Log/trace correlation: every line picks up the active OTel span's traceId/spanId,
+// same convention as `%X{traceId}` in the Java services' logback pattern.
+function mixin(): Record<string, string> {
+  const span = trace.getActiveSpan();
+  if (!span) return {};
+  const ctx = span.spanContext();
+  return { traceId: ctx.traceId, spanId: ctx.spanId };
+}
+
 // ─── Logger instance ─────────────────────────────────────────────────────────
 export const logger = pino(
   {
@@ -51,6 +60,10 @@ export const logger = pino(
     base: { service: SERVICE_NAME },
     // ISO timestamp — consistent with Java services
     timestamp: pino.stdTimeFunctions.isoTime,
+    // "INFO"/"ERROR" instead of pino's default numeric level — matches the
+    // Java services' logfmt output so both parse the same way downstream.
+    formatters: { level: (label) => ({ level: label.toUpperCase() }) },
+    mixin,
   },
   transport,
 );
