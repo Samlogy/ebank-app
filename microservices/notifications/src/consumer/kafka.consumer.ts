@@ -7,6 +7,7 @@ import {
   sendPushNotification,
   buildTransactionPush,
 } from '../services/push.service';
+import { kafkaMessagesConsumedTotal } from '../metrics';
 
 const TOPICS = {
   TRANSACTION_EVENTS: 'transaction-events',
@@ -111,7 +112,9 @@ async function processMessage({ topic, message }: EachMessagePayload): Promise<v
       default:
         console.warn(`[KAFKA] Received message on unhandled topic: ${topic}`);
     }
+    kafkaMessagesConsumedTotal.inc({ topic, status: 'success' });
   } catch (err) {
+    kafkaMessagesConsumedTotal.inc({ topic, status: 'failure' });
     console.error(`[KAFKA] Error processing message on topic ${topic}:`, err);
     // Do NOT rethrow — we don't want one bad message to crash the consumer.
   }
