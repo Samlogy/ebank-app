@@ -1,15 +1,21 @@
 {{/*
-servicemonitor.yaml — Tells kube-prometheus-stack to scrape ebank Spring Boot services.
+servicemonitor.yaml — Tells kube-prometheus-stack to scrape ebank's Spring
+Boot services' /actuator/prometheus.
 
 HOW it works:
   Prometheus Operator watches ServiceMonitor CRDs cluster-wide.
   When it finds one, it generates a Prometheus scrape config targeting
   the Service endpoints matching the selector labels.
 
-WHY one ServiceMonitor for all services (not per-service):
-  All ebank services expose /actuator/prometheus on the same label
-  (app.kubernetes.io/instance: ebank). One resource is simpler and
-  scales automatically when new services are added.
+WHY one ServiceMonitor for the Spring Boot services (not per-service):
+  auth/accounts/transactions/gateway all expose the same path on the same
+  label (app.kubernetes.io/instance: ebank). One resource is simpler and
+  scales automatically when a new Spring Boot service is added.
+
+WHY notification-service is excluded here:
+  It's Node.js and exposes Prometheus metrics at /metrics, not
+  /actuator/prometheus — scraping it with this path would just 404.
+  See notification-servicemonitor.yaml for its dedicated ServiceMonitor.
 
 REQUIRES: kube-prometheus-stack or prometheus-operator installed.
   helm install monitoring prometheus-community/kube-prometheus-stack -n monitoring
@@ -27,10 +33,15 @@ metadata:
     #   serviceMonitorSelector: { matchLabels: { release: monitoring } }
     release: monitoring
 spec:
-  # Select all Services in this namespace that belong to this Helm release
+  # Select all Services in this namespace that belong to this Helm release,
+  # except notification (Node — different path, see notification-servicemonitor.yaml)
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ .Release.Name }}
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values: ["notification"]
   # Only scrape the namespace where the release lives
   namespaceSelector:
     matchNames:

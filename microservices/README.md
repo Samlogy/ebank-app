@@ -286,12 +286,16 @@ curl http://localhost:8083/actuator/health  # transactions
 ## Prerequisites
 
 # Install tools
-minikube start --driver=docker --cpus=4 --memory=8192 --disk-size=40g
+minikube start --driver=docker --cpus=6 --memory=10240 --disk-size=40g
 minikube addons enable ingress
 minikube addons enable metrics-server
 
-# Install Helm
+# Helm repos — bitnami is unused for local (see infra-local.yaml note below),
+# but the chart references its postgresql/mongodb/redis/kafka subcharts.
+# prometheus-community + grafana provide the observability stack.
 helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
 helm repo update
 
 ## build docker image inside minikube
@@ -317,13 +321,44 @@ kubectl create namespace ebank-local
 kubectl apply -f k8s/vault-dev.yaml -n ebank-local
 kubectl wait --for=condition=ready pod -l app=vault -n ebank-local --timeout=60s
 
-## deploy infra (postgres, mongo, redis, kafka)
+## deploy infra (postgres, mongo, redis, kafka)
 kubectl apply -f k8s/infra-local.yaml -n ebank-local
 
-# Wait for all infra to be ready
+## deploy Tempo (distributed tracing — see k8s/tempo-local.yaml)
+kubectl apply -f k8s/tempo-local.yaml -n ebank-local
+
+# Wait for all infra to be ready (postgres/mongo/redis/kafka/tempo)
 kubectl wait --for=condition=ready pod -l tier=infra -n ebank-local --timeout=180s
 
-## deploy helm chart
+## deploy Prometheus (kube-prometheus-stack provides the ServiceMonitor CRD —
+## MUST exist before `helm install ebank` below, which creates ServiceMonitor
+## resources; installing it after would make that install fail)
+kubectl create namespace monitoring
+helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --set grafana.enabled=false \
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+  --timeout 10m
+
+## deploy Loki + Grafana (loki-stack bundles both; sidecars auto-load the
+## datasources/dashboards ConfigMaps applied below)
+helm upgrade --install loki grafana/loki-stack \
+  --namespace ebank-local \
+  --set grafana.enabled=true \
+  --set grafana.sidecar.datasources.enabled=true \
+  --set grafana.sidecar.dashboards.enabled=true \
+  --set promtail.enabled=false \
+  --timeout 10m
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n ebank-local --timeout=180s
+
+## wire Prometheus + Loki + Tempo together in Grafana, and load the dashboards
+kubectl apply -f k8s/grafana-datasources.yaml -n ebank-local
+kubectl apply -f k8s/grafana-dashboards.yaml -n ebank-local
+
+## optional — browser access to Grafana via Ingress (see the Access section below)
+kubectl apply -f k8s/observability-ingress.yaml -n ebank-local
+
+## deploy helm chart
 helm upgrade --install ebank ./helm/ebank \
   -f helm/ebank/values.yaml \
   -f helm/ebank/values-local.yaml \
@@ -360,7 +395,7 @@ curl -X GET http://localhost:8080/api/accounts \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN"
 
-## Access Frontend
+## Access Frontend
 # Get minikube IP
 minikube ip   # e.g. 192.168.49.2
 
@@ -368,6 +403,17 @@ minikube ip   # e.g. 192.168.49.2
 echo "$(minikube ip) ebank.local api.ebank.local" | sudo tee -a /etc/hosts
 
 # Open browser at http://ebank.local
+
+## Access Grafana (metrics + logs + traces, one UI)
+echo "$(minikube ip) grafana.ebank.local" | sudo tee -a /etc/hosts
+kubectl get secret loki-grafana -n ebank-local \
+  -o jsonpath='{.data.admin-password}' | base64 -d; echo
+# Open browser at http://grafana.ebank.local  (user: admin)
+
+# No Ingress? Port-forward instead:
+kubectl port-forward svc/loki-grafana -n ebank-local 3000:80 &
+kubectl port-forward svc/monitoring-kube-prometheus-prometheus -n monitoring 9090:9090 &
+kubectl port-forward svc/tempo -n ebank-local 3200:3200 &
 ```
 
 ## Scale up/down:

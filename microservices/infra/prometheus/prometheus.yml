@@ -44,3 +44,11 @@ scrape_configs:
       - targets: ['transaction-service:8083']
         labels:
           service: transaction-service
+
+  # ── Node.js services ─────────────────────────────────────────────
+  - job_name: notification-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['notification-service:3002']
+        labels:
+          service: notification-service

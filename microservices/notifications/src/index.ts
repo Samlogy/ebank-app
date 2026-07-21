@@ -1,8 +1,10 @@
+import './tracing'; // must be the first import — patches http/express/kafkajs before they load
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import { config } from './config';
 import { logger } from './logger';
 import { startKafkaConsumer, stopKafkaConsumer } from './consumer/kafka.consumer';
+import { registry } from './metrics';
 
 // ---------------------------------------------------------------------------
 // Express app
@@ -13,6 +15,11 @@ app.use(express.json());
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'UP', service: 'notification-service' });
+});
+
+app.get('/metrics', async (_req: Request, res: Response) => {
+  res.set('Content-Type', registry.contentType);
+  res.send(await registry.metrics());
 });
 
 app.get('/', (_req: Request, res: Response) => {
