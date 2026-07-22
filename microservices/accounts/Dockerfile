@@ -45,20 +45,19 @@
 
 
 # Build stage
-FROM eclipse-temurin:21-jdk-alpine AS builder
+# Use the Maven base image and `mvn` directly: the Maven wrapper is not usable
+# here because .mvn/wrapper/maven-wrapper.properties is gitignored repo-wide
+# (see .gitignore), so `./mvnw` cannot resolve a distribution to download.
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
 WORKDIR /app
 
-# Copy maven/gradle files
-COPY mvnw .
-COPY .mvn .mvn
+# Copy pom and download dependencies (cached layer)
 COPY pom.xml .
-
-# Download dependencies (cached layer)
-RUN ./mvnw dependency:go-offline -B
+RUN mvn dependency:go-offline -B
 
 # Copy source code and build
 COPY src src
-RUN ./mvnw clean package -DskipTests
+RUN mvn clean package -DskipTests
 
 # Run stage
 FROM eclipse-temurin:21-jre-alpine
