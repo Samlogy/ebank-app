@@ -45,6 +45,13 @@ scrape_configs:
         labels:
           service: transaction-service
 
+  - job_name: chatbot-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['chatbot-service:3001']
+        labels:
+          service: chatbot-service
+
   # ── Node.js services ─────────────────────────────────────────────
   - job_name: notification-service
     metrics_path: /metrics

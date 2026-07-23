@@ -55,7 +55,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus,refresh,env
+        include: health,info,metrics,prometheus,refresh,env,loggers,threaddump,caches,mappings
   endpoint:
     health:
       show-details: ALWAYS

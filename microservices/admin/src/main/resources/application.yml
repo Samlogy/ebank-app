@@ -1,0 +1,51 @@
+server:
+  port: ${SERVER_PORT:8090}
+
+spring:
+  application:
+    name: ebank-admin-server
+
+  security:
+    user:
+      name: ${ADMIN_UI_USER:admin}
+      password: ${ADMIN_UI_PASSWORD:admin}
+
+  boot:
+    admin:
+      ui:
+        title: eBank Admin
+      # Static discovery: monitor the 5 Spring services from a fixed list.
+      # The services need no client dependency — the Admin server polls their
+      # already-exposed /actuator endpoints (default health path /actuator/health).
+      discovery:
+        # notification-service is Node.js (no Spring Actuator API) → not monitored here
+        ignored-services: []
+
+  cloud:
+    discovery:
+      client:
+        simple:
+          instances:
+            gateway:
+              - uri: ${GATEWAY_URL:http://gateway-service:8080}
+            auth-service:
+              - uri: ${AUTH_URL:http://auth-service:8081}
+            accounts-service:
+              - uri: ${ACCOUNTS_URL:http://accounts-service:8082}
+            transaction-service:
+              - uri: ${TRANSACTIONS_URL:http://transaction-service:8083}
+            chatbot-service:
+              - uri: ${CHATBOT_URL:http://chatbot-service:3001}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    de.codecentric.boot.admin: INFO

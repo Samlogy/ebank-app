@@ -526,12 +526,14 @@ helm repo update
 eval $(minikube docker-env)
 
 # Build all service images
-docker build -t ebank-auth:local        ./auth
-docker build -t ebank-accounts:local    ./accounts
+docker build -t ebank-auth:local         ./auth
+docker build -t ebank-accounts:local     ./accounts
 docker build -t ebank-transactions:local ./transactions
-docker build -t ebank-gateway:local     ./gateway
+docker build -t ebank-gateway:local      ./gateway
+docker build -t ebank-chatbot:local      ./chatbot
 docker build -t ebank-notification:local ./notifications
-docker build -t ebank-frontend:local    ./frontend
+docker build -t ebank-admin:local        ./admin
+docker build -t ebank-frontend:local     ../front-react
 
 # Verify they're in minikube
 docker images | grep ebank
