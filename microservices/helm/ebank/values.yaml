@@ -325,6 +325,28 @@ frontend:
     annotations: {}
 
 # ──────────────────────────────────────────────────────────────────────────────
+# SPRING BOOT ADMIN — monitoring UI for the 5 Spring services
+# Self-contained: discovers services from a static list (env below) and polls
+# their /actuator endpoints. No client dependency in the services themselves.
+# Access: kubectl port-forward svc/<release>-ebank-admin 8091:8090  (admin/admin)
+# ──────────────────────────────────────────────────────────────────────────────
+admin:
+  enabled: true
+  image: ebank-admin
+  tag: ""
+  replicas: 1
+  uiUser: admin
+  uiPassword: admin
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# ──────────────────────────────────────────────────────────────────────────────
 # BITNAMI — PostgreSQL
 # Creates: <release>-postgresql service on port 5432
 # Databases are created by each service's Flyway migration on startup.

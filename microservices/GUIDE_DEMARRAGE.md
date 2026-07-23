@@ -39,6 +39,7 @@ d'**observabilité**.
 | **transaction-service** | Spring WebFlux + MongoDB + Kafka | `8083` | Transactions, événements (saga) |
 | **chatbot-service** | Spring Boot + Spring AI (RAG/pgvector) | `3001` | Chatbot, tool-calling, RAG |
 | **notification-service** | Node.js + KafkaJS | `3002` | Emails/SMS déclenchés par Kafka |
+| **admin** | Spring Boot Admin (`de.codecentric`) | `8091` (→ 8090) | UI de supervision des 5 services Spring |
 | postgres (pgvector) | PostgreSQL 17 + pgvector | `5432` | `auth_db`, `accounts_db`, `chatbot_db` |
 | mongodb | MongoDB 7 | `27017` | `transactions_db` |
 | redis | Redis 7 | `6379` | Cache, sessions, rate-limit, blacklist JWT |
@@ -60,9 +61,9 @@ conteneur `vault-init` injecte toute la configuration de chaque service dans
 depuis Vault via Spring Cloud Vault (`SPRING_PROFILES_ACTIVE=docker`,
 `VAULT_URI`, `VAULT_TOKEN=root`).
 
-> ⚠️ **Conflit de port 8090 :** en microservices, `kafka-ui` occupe le port
-> `8090`. Le serveur **Spring Boot Admin** du *monolith* utilise aussi `8090`
-> (voir §8) — ne lancez pas les deux stacks en même temps sans remapper un port.
+> ℹ️ **Port 8090 :** `kafka-ui` occupe `8090` sur l'hôte. Le serveur **Spring Boot
+> Admin** écoute sur `8090` **dans le conteneur** mais est publié sur l'hôte en
+> **`8091`** pour éviter le conflit (voir §8).
 
 ---
 
@@ -141,6 +142,7 @@ for p in 8080 8081 8082 8083 3001; do
   echo "port $p:"; curl -s http://localhost:$p/actuator/health | head -c 120; echo
 done
 curl -s http://localhost:3002/health          # notification (Node)
+curl -s -u admin:admin http://localhost:8091/actuator/health  # Spring Boot Admin
 
 # Vault a bien seedé la config ?
 curl -s -H "X-Vault-Token: root" \
@@ -446,68 +448,63 @@ hikaricp_connections_active
 
 ## 8. Spring Admin
 
-> **Important — périmètre.** Spring Boot Admin (SBA) est un composant du module
-> **`monolith/`**, pas du stack microservices. Dans l'architecture microservices,
-> le rôle de SBA (supervision interactive par instance, changement de niveau de
-> log à chaud, thread dump, santé live) est assuré par **Spring Boot Actuator +
-> Grafana**. Les deux options sont décrites ci-dessous.
+Le stack microservices embarque désormais un **serveur Spring Boot Admin**
+dédié (module `microservices/admin`, service `admin` dans `docker-compose.yml`).
 
-### 8.1 Serveur Spring Boot Admin (monolith)
-
-Le module `monolith/admin` est un serveur SBA dédié (`de.codecentric`) exposé sur
-le port **`8090`**, protégé par login (`ADMIN_UI_USER`/`ADMIN_UI_PASSWORD`, défaut
-`admin`/`admin`). Le monolith s'y enregistre via `SPRING_BOOT_ADMIN_URL`.
+- **UI :** http://localhost:8091 &nbsp;(login **`admin` / `admin`**, surchargeable
+  via `ADMIN_UI_USER` / `ADMIN_UI_PASSWORD`).
+- **Port :** exposé sur l'hôte en **`8091`** (le `8090` interne est remappé car
+  `kafka-ui` occupe déjà `8090`).
+- **Découverte :** le serveur monitore les **5 services Spring** (gateway, auth,
+  accounts, transaction, chatbot) via une **liste statique**
+  (`SimpleDiscoveryClient`, cf. `admin/src/main/resources/application.yml`). Les
+  services n'embarquent **aucune dépendance client** — SBA interroge simplement
+  leurs endpoints `/actuator/**` déjà exposés.
+  (`notification-service` est en Node.js : pas d'API Actuator Spring, donc non
+  monitoré ici — voir §7 pour ses métriques/logs.)
 
 ```bash
-cd ../monolith
-cp .env.example .env          # renseigner ADMIN_UI_USER / ADMIN_UI_PASSWORD si besoin
-docker compose up -d --build
-#   → Spring Boot Admin : http://localhost:8090   (admin / admin)
-#   → App monolith      : http://localhost:8081   (mappée sur 8080 interne)
+# Une fois `docker compose up -d` terminé :
+open http://localhost:8091            # → liste des 5 services, statut UP en vert
+# health du serveur Admin lui-même :
+curl -s -u admin:admin http://localhost:8091/actuator/health
 ```
 
-> ⚠️ Le port `8090` est aussi utilisé par `kafka-ui` dans le stack microservices —
-> ne lancez pas les deux en même temps sans remapper.
+**Ce que Spring Admin offre (panneaux clés), pour chaque service :**
 
-**Ce que SBA offre (panneaux clés) :**
-
-| Panneau | Source | Ce que vous pouvez faire |
+| Panneau | Source (`/actuator/…`) | Ce que vous pouvez faire |
 |---|---|---|
-| Health | `/actuator/health` | État DB, Redis, disque en un coup d'œil |
-| JVM | `/actuator/metrics` | Heap/non-heap, GC, threads en direct |
-| Loggers | `/actuator/loggers` | Passer `com.ebank` en DEBUG **sans redémarrer** |
-| Caches | `/actuator/caches` | Caches Redis, hit/miss |
-| Environment | `/actuator/env` | Propriétés actives (valeurs masquées) |
-| Thread dump | `/actuator/threaddump` | Snapshot des threads |
-| Flyway | `/actuator/flyway` | Historique des migrations |
-| Mappings | `/actuator/mappings` | Tous les endpoints HTTP |
+| Health | `health` | État DB, Redis, disque en un coup d'œil |
+| JVM / Metrics | `metrics` | Heap/non-heap, GC, threads, HTTP en direct |
+| Loggers | `loggers` | Passer `com.ebank` en DEBUG **sans redémarrer** |
+| Caches | `caches` | Caches Redis (accounts/transactions) |
+| Environment | `env` | Propriétés actives (valeurs masquées) |
+| Thread dump | `threaddump` | Snapshot des threads |
+| Mappings | `mappings` | Tous les endpoints HTTP enregistrés |
 
-Guides détaillés existants : `monolith/SPRING_BOOT_ADMIN_GUIDE.md`,
-`monolith/ADMIN_QUICK_REFERENCE.md`, `monolith/ADMIN_MONITORING_SCENARIOS.md`.
+> Ces panneaux fonctionnent parce que l'exposition Actuator des services a été
+> élargie à `loggers,threaddump,caches,mappings` (seed Vault + `application.yml`
+> du chatbot, cf. §10).
 
-### 8.2 Équivalent côté microservices (Actuator + Grafana)
-
-Chaque microservice Spring expose déjà les endpoints Actuator
-(`health, info, metrics, prometheus, refresh, env`) sur son propre port. Vous
-obtenez les mêmes informations que SBA :
+**En Minikube :** le chart Helm déploie aussi le serveur Admin
+(`admin.enabled: true`). Y accéder :
 
 ```bash
-curl -s http://localhost:8081/actuator/health   | jq .   # santé détaillée
-curl -s http://localhost:8081/actuator/metrics/jvm.memory.used | jq .
-curl -s http://localhost:8081/actuator/loggers/com.ebank | jq .
+kubectl port-forward svc/ebank-ebank-admin -n ebank-local 8091:8090 &
+# → http://localhost:8091   (admin / admin)
+```
 
-# Changer un niveau de log à chaud (comme SBA, sans redémarrage) :
+**Équivalent « à la main » (sans SBA) :** chaque service reste interrogeable
+directement, utile pour un script ou un check ponctuel :
+
+```bash
+curl -s http://localhost:8081/actuator/health | jq .
+# Changer un niveau de log à chaud (ce que fait le panneau Loggers de SBA) :
 curl -X POST http://localhost:8081/actuator/loggers/com.ebank \
   -H "Content-Type: application/json" -d '{"configuredLevel":"DEBUG"}'
-
 # Recharger la config depuis Vault sans redémarrage :
 curl -X POST http://localhost:8081/actuator/refresh
 ```
-
-Les métriques temps réel (JVM, HTTP, cache) sont ensuite visualisées dans
-**Grafana** (§7). Si vous souhaitez un vrai serveur SBA agrégeant les 6
-microservices, c'est une évolution possible (ajout d'un service
-`admin-server` + client SBA dans chaque service) — non incluse aujourd'hui.
 
 ---
 
@@ -538,11 +535,14 @@ Reset complet en compose : `docker compose down -v && docker compose up -d --bui
   build de production OK.
 - **Tests unitaires** métier verts : `AuthServiceTest`, `AccountServiceTest`,
   `ChatbotServiceTest`.
+- **Serveur Spring Boot Admin** (nouveau module `admin/`) : compile, et le jar
+  **démarre réellement** en local (contexte chargé, UI SBA servie, découverte
+  statique active).
 - **Docker Compose** : `docker compose config` valide (stack de base **et**
   overlay ELK).
 - **Kubernetes** : tous les manifestes `k8s/*.yaml` sont des objets K8s
   bien formés ; le **chart Helm** passe `helm lint` et `helm template`
-  (profil `values-local`, 25 objets rendus).
+  (profil `values-local`, 27 objets rendus, dont le serveur Admin).
 - **Configs d'observabilité** relues (Prometheus, Tempo, Loki, datasources
   Grafana, pipeline Logstash/Filebeat).
 
@@ -556,6 +556,15 @@ Reset complet en compose : `docker compose down -v && docker compose up -d --bui
 | `infra/prometheus/prometheus.yml` | Ajout du job de scrape `chatbot-service:3001` | Les métriques du chatbot n'étaient pas collectées. |
 | `infra/grafana/.../loki.yml`, `prometheus.yml` | Ajout d'`uid: loki` / `uid: prometheus` | Sans uid stable, les corrélations Tempo→Logs/Métriques ne se résolvaient pas. |
 | `auth/.../AuthServiceTest.java` | Injection d'un vrai `SimpleMeterRegistry` | Le test ne fournissait pas de `MeterRegistry` → `NullPointerException` (5 tests en erreur). |
+
+### 10.2bis Ajout — Spring Boot Admin (objectif « spring admin »)
+
+| Ajout | Détail |
+|---|---|
+| Module `admin/` | Nouveau serveur Spring Boot Admin (`de.codecentric` 4.0.4, Spring Boot 4.0.3). Découverte statique des 5 services Spring via `SimpleDiscoveryClient` → **aucune modification des services existants**. |
+| Service `admin` dans `docker-compose.yml` | Publié sur l'hôte `8091` (interne 8090), login `admin`/`admin`. |
+| Templates Helm `admin-deployment.yaml` / `admin-service.yaml` + `admin` dans `values.yaml` | Déploiement du serveur Admin en Minikube (parité docker-compose ↔ k8s). |
+| Exposition Actuator élargie (`loggers,threaddump,caches,mappings`) | Seed Vault (auth/accounts/transaction/gateway) + `application.yml` du chatbot — pour que les panneaux SBA (log-level runtime, thread dump, caches) soient pleinement fonctionnels. |
 
 ### 10.3 Limite d'environnement (transparence)
 

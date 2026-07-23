@@ -1,0 +1,81 @@
+{{- if .Values.admin.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ebank.fullname" . }}-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ebank.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admin
+spec:
+  replicas: {{ .Values.admin.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "ebank.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: admin
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "ebank.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: admin
+      annotations:
+        checksum/values: {{ .Values | toYaml | sha256sum | trunc 8 }}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: admin
+          # Spring Boot Admin server — self-contained, no Vault. It discovers the
+          # Spring services from a static list injected below and polls their
+          # /actuator endpoints.
+          image: {{ include "ebank.image" (dict "service" .Values.admin "global" .Values.global) }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8090
+              protocol: TCP
+          env:
+            - name: SERVER_PORT
+              value: "8090"
+            - name: ADMIN_UI_USER
+              value: {{ .Values.admin.uiUser | quote }}
+            - name: ADMIN_UI_PASSWORD
+              value: {{ .Values.admin.uiPassword | quote }}
+            - name: GATEWAY_URL
+              value: http://{{ include "ebank.fullname" . }}-gateway:{{ .Values.gateway.port }}
+            - name: AUTH_URL
+              value: http://{{ include "ebank.fullname" . }}-auth:{{ .Values.auth.port }}
+            - name: ACCOUNTS_URL
+              value: http://{{ include "ebank.fullname" . }}-accounts:{{ .Values.accounts.port }}
+            - name: TRANSACTIONS_URL
+              value: http://{{ include "ebank.fullname" . }}-transactions:{{ .Values.transactions.port }}
+            - name: CHATBOT_URL
+              value: http://{{ include "ebank.fullname" . }}-chatbot:{{ .Values.chatbot.port }}
+          resources:
+            {{- toYaml .Values.admin.resources | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+{{- end }}

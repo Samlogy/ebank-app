@@ -72,7 +72,7 @@ services:
           "logging.level.com.ebank.auth=DEBUG" \
           "logging.level.org.springframework.security=INFO" \
           "logging.level.org.hibernate.SQL=DEBUG" \
-          "management.endpoints.web.exposure.include=health,info,metrics,prometheus,refresh,env" \
+          "management.endpoints.web.exposure.include=health,info,metrics,prometheus,refresh,env,loggers,threaddump,caches,mappings" \
           "management.endpoint.health.show-details=ALWAYS" \
           "management.metrics.tags.service=auth-service" \
           "management.metrics.tags.env=docker" \
@@ -101,7 +101,7 @@ services:
           "springdoc.swagger-ui.path=/accounts-api-ui" \
           "logging.level.com.ebank.accounts=DEBUG" \
           "logging.level.io.r2dbc.postgresql=INFO" \
-          "management.endpoints.web.exposure.include=health,info,metrics,prometheus,refresh,env" \
+          "management.endpoints.web.exposure.include=health,info,metrics,prometheus,refresh,env,loggers,threaddump,caches,mappings" \
           "management.endpoint.health.show-details=ALWAYS" \
           "management.metrics.tags.service=accounts-service" \
           "management.metrics.tags.env=docker" \
@@ -126,7 +126,7 @@ services:
           "springdoc.swagger-ui.path=/transactions-api-ui" \
           "logging.level.com.ebank.transactions=DEBUG" \
           "logging.level.org.springframework.data.mongodb=INFO" \
-          "management.endpoints.web.exposure.include=health,info,metrics,prometheus,refresh,env" \
+          "management.endpoints.web.exposure.include=health,info,metrics,prometheus,refresh,env,loggers,threaddump,caches,mappings" \
           "management.endpoint.health.show-details=ALWAYS" \
           "management.metrics.tags.service=transaction-service" \
           "management.metrics.tags.env=docker" \
@@ -152,7 +152,7 @@ services:
           "springdoc.swagger-ui.path=/gateway-api-ui" \
           "logging.level.com.ebank.gateway=DEBUG" \
           "logging.level.org.springframework.cloud.gateway=INFO" \
-          "management.endpoints.web.exposure.include=health,info,metrics,prometheus" \
+          "management.endpoints.web.exposure.include=health,info,metrics,prometheus,loggers,threaddump,mappings" \
           "management.endpoint.health.show-details=ALWAYS" \
           "management.metrics.tags.service=gateway" \
           "management.metrics.tags.env=docker" \
@@ -388,6 +388,51 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  # ================================================================
+  # SPRING BOOT ADMIN — centralised monitoring UI for the Spring services
+  # WHY: interactive per-instance supervision (health, JVM, live log-level
+  #      changes, thread dump, caches, env) that complements Grafana.
+  # HOW: discovers the 5 Spring services from a static SimpleDiscoveryClient
+  #      list (see admin/src/main/resources/application.yml) — the services need
+  #      NO client dependency, SBA just polls their /actuator endpoints.
+  # UI: http://localhost:8091  (login: admin / admin — override via env)
+  # NOTE: mapped to host 8091 because kafka-ui already uses 8090.
+  # ================================================================
+  admin:
+    build: ./admin
+    container_name: ebank_admin
+    ports:
+      - "8091:8090"
+    environment:
+      SERVER_PORT: 8090
+      ADMIN_UI_USER: ${ADMIN_UI_USER:-admin}
+      ADMIN_UI_PASSWORD: ${ADMIN_UI_PASSWORD:-admin}
+      # Discovery targets (defaults already point at the compose service names)
+      GATEWAY_URL: http://gateway-service:8080
+      AUTH_URL: http://auth-service:8081
+      ACCOUNTS_URL: http://accounts-service:8082
+      TRANSACTIONS_URL: http://transaction-service:8083
+      CHATBOT_URL: http://chatbot-service:3001
+    networks:
+      - ebank-network
+    depends_on:
+      auth-service:
+        condition: service_started
+      accounts-service:
+        condition: service_started
+      transaction-service:
+        condition: service_started
+      gateway-service:
+        condition: service_started
+      chatbot-service:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8090/actuator/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   # ================================================================
   # INFRASTRUCTURE
