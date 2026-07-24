@@ -1,0 +1,43 @@
+---
+title: Why we chose a gateway before a service mesh
+date: '2025-04-03'
+summary: A service mesh solves real problems — but not the ones a small platform has on day one. Here's the reasoning for starting with an API gateway and keeping the mesh on the roadmap.
+tags: ['Architecture', 'Kubernetes', 'RFC']
+---
+
+"Should we run a service mesh?" is one of those questions where the honest answer
+is *"eventually, probably — but not yet."* Here's how we reasoned about it.
+
+## What a mesh actually buys you
+
+mTLS everywhere, fine-grained traffic shaping, retries and circuit breaking at the
+sidecar, and rich east-west observability. All genuinely useful. All with a cost:
+a sidecar next to every pod, a control plane to operate, and a new failure mode to
+learn.
+
+## What we needed on day one
+
+- One place to enforce auth and rate limits at the edge.
+- Dynamic routing so scaling a service didn't mean editing config.
+- Centralized configuration.
+
+Every one of those is a **north-south** (edge) concern, and an API gateway plus a
+discovery layer covers them without a sidecar in sight.
+
+## The decision
+
+We shipped **Spring Cloud Gateway + service discovery + a config server** — native
+to the stack the team already knew — and wrote down the trigger for revisiting:
+
+> When cross-service mTLS becomes a compliance requirement, or when we need
+> per-route traffic shaping the gateway can't express, we adopt a mesh.
+
+That's the part teams skip: not just *what* you chose, but *the condition under
+which you'd choose differently*. A decision without a revisit trigger is just a
+guess you've stopped questioning.
+
+## The tradeoff
+
+We accepted weaker east-west controls in exchange for far less operational
+surface. For our traffic and team size, that was clearly the right trade — and
+writing down the trigger means it stays right only as long as it actually is.

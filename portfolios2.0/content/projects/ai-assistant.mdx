@@ -1,0 +1,86 @@
+---
+title: An AI support assistant with RAG
+summary: Shipped a Spring AI microservice that answers customer questions using tool-calling and retrieval-augmented generation over a pgvector store — behind the same gateway, CI/CD and observability as every other service.
+tags: ['Spring AI', 'RAG', 'pgvector', 'LLM']
+role: Lead engineer (solo)
+year: '2025'
+order: 4
+repo: 'https://github.com/samlogy/ebank-app'
+demo: ''
+---
+
+## Context
+
+Support was answering the same account and product questions over and over. An
+LLM was the obvious tool — but a raw chatbot that hallucinates balances or invents
+policy is worse than no bot at all in a banking context. It needed to answer
+*from our data* and be able to *take grounded actions*, not free-associate.
+
+## My role
+
+Solo — I designed and built the service end-to-end and, importantly, treated it as
+**just another microservice**: same gateway, same pipeline, same observability. No
+special-snowflake infrastructure.
+
+## The decision
+
+The key decision was **how to keep answers grounded**. Options:
+
+- **Prompt-stuff everything** — dump docs into the context window. Simple, but it
+  doesn't scale, gets expensive, and still drifts.
+- **Fine-tune a model** — heavy, slow to iterate, and stale the moment a policy
+  changes.
+- **Retrieval-augmented generation over a vector store** — retrieve the few
+  relevant chunks per question and ground the answer in them, with tool-calling for
+  live data.
+
+RAG won: answers cite current documents, updating knowledge means re-indexing (not
+retraining), and **tool-calling** lets the model fetch live account data through
+typed, permissioned functions instead of guessing.
+
+## What I built
+
+<Mermaid
+  caption="A question is embedded, matched against pgvector, and answered by the LLM grounded in retrieved chunks — with tool-calling for live data."
+  chart={`flowchart LR
+  User([User question]) --> GW[Gateway]
+  GW --> AI[Spring AI service]
+  AI --> Emb[Embed query]
+  Emb --> VDB[(pgvector)]
+  VDB --> Ctx[Top-k chunks]
+  Ctx --> LLM[LLM w/ tool-calling]
+  LLM --> Tools{{Account / Txn tools}}
+  Tools --> LLM
+  LLM --> Ans([Grounded answer])`}
+/>
+
+- **Spring AI** for the LLM integration, embeddings and tool-calling wiring.
+- **pgvector** as the vector store — one less piece of infrastructure since
+  PostgreSQL was already in the stack.
+- **Tool-calling** into existing services through typed functions, so the model
+  reads real data instead of inventing it.
+- Same **gateway, CI/CD and telemetry** as the rest of the platform.
+
+## Challenges / tradeoffs
+
+Early answers were confidently wrong when retrieval missed — the model would
+**fill the gap with plausible fiction** rather than admit it didn't know.
+
+- **Root cause:** no floor on retrieval relevance, and a prompt that rewarded
+  answering over abstaining.
+- **Fix:** added a similarity threshold (below it, the bot says it doesn't know and
+  offers a handoff), tightened the system prompt to answer *only* from retrieved
+  context, and logged retrieved chunks alongside each answer for auditability.
+- **Tradeoff accepted:** the bot now declines more often. In a banking context, a
+  clear "I don't know, here's a human" beats a confident wrong number every time.
+
+## Outcome
+
+- Grounded answers with an audit trail of what the model actually read.
+- Knowledge updates are a re-index, not a retrain.
+- Deployed and operated exactly like every other service — no bespoke AI
+  infrastructure to babysit.
+
+## Links
+
+- Repository: [github.com/samlogy/ebank-app](https://github.com/samlogy/ebank-app)

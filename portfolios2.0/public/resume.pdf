@@ -1,0 +1,73 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 3708 >>
+stream
+BT 0.1 0.1 0.1 rg /F2 21 Tf 56.0 781.9 Td (Sam Senani) Tj ET
+BT 0.059 0.463 0.431 rg /F2 11.5 Tf 56.0 757.9 Td (Senior DevOps Engineer & Tech Lead) Tj ET
+BT 0.35 0.35 0.35 rg /F1 9 Tf 56.0 741.9 Td (Remote  EU   |   senanisammy@gmail.com   |   github.com/samlogy   |   linkedin.com/in/) Tj ET
+BT 0.1 0.1 0.1 rg /F1 10 Tf 56.0 723.9 Td (I design and lead the platform and infrastructure behind distributed banking) Tj ET
+BT 0.1 0.1 0.1 rg /F1 10 Tf 56.0 710.9 Td (systems - from zero-downtime deploys and observability to on-call culture.) Tj ET
+BT 0.059 0.463 0.431 rg /F2 9.5 Tf 56.0 690.9 Td (HIGHLIGHTS) Tj ET
+0.8 0.8 0.8 RG 1 w 56 686.9 m 539.3 686.9 l S
+BT 0.1 0.1 0.1 rg /F1 10 Tf 62.0 678.9 Td (-  45m -> 4m  -  reworked CI/CD and image caching across the eBank service fleet) Tj ET
+BT 0.1 0.1 0.1 rg /F1 10 Tf 62.0 664.9 Td (-  99.98% uptime  -  SLO for a payments platform serving 2M+ requests/day) Tj ET
+BT 0.1 0.1 0.1 rg /F1 10 Tf 62.0 650.9 Td (-  -40% infra cost  -  right-sizing, spot capacity and autoscaling on Kubernetes) Tj ET
+BT 0.1 0.1 0.1 rg /F1 10 Tf 62.0 636.9 Td (-  6 engineers led  -  grew and mentored a platform team; owned on-call design) Tj ET
+BT 0.059 0.463 0.431 rg /F2 9.5 Tf 56.0 616.9 Td (EXPERIENCE) Tj ET
+0.8 0.8 0.8 RG 1 w 56 612.9 m 539.3 612.9 l S
+BT 0.1 0.1 0.1 rg /F2 10.5 Tf 56.0 604.9 Td (Platform & DevOps Lead   -   eBank) Tj ET
+BT 0.35 0.35 0.35 rg /F1 9 Tf 473.8 604.9 Td (2023 - Present) Tj ET
+BT 0.1 0.1 0.1 rg /F1 9.8 Tf 62.0 590.9 Td (-  Architected a 12-service Spring Boot microservices platform with Docker Compose and) Tj ET
+BT 0.1 0.1 0.1 rg /F1 9.8 Tf 62.0 577.1 Td (-  Kubernetes, Spring Cloud Gateway and Spring Admin.) Tj ET
+BT 0.1 0.1 0.1 rg /F1 9.8 Tf 62.0 563.3 Td (-  Built observability: centralized logging, metrics and tracing, with zero-downtime deploys.) Tj ET
+BT 0.1 0.1 0.1 rg /F1 9.8 Tf 62.0 549.5 Td (-  Added a Spring AI chatbot with tool-calling and RAG over pgvector, behind the same CI/CD.) Tj ET
+BT 0.1 0.1 0.1 rg /F2 10.5 Tf 56.0 529.7 Td (Senior DevOps Engineer   -   Company B) Tj ET
+BT 0.35 0.35 0.35 rg /F1 9 Tf 487.8 529.7 Td (2020 - 2023) Tj ET
+BT 0.1 0.1 0.1 rg /F1 9.8 Tf 62.0 515.7 Td (-  Sole infra owner for 3 production services; introduced IaC and cut manual deploy steps to zero.) Tj ET
+BT 0.1 0.1 0.1 rg /F1 9.8 Tf 62.0 501.9 Td (-  Designed the on-call rotation and incident-response runbooks adopted across two teams.) Tj ET
+BT 0.1 0.1 0.1 rg /F2 10.5 Tf 56.0 482.1 Td (Software / Cloud Engineer   -   Company C) Tj ET
+BT 0.35 0.35 0.35 rg /F1 9 Tf 487.8 482.1 Td (2017 - 2020) Tj ET
+BT 0.1 0.1 0.1 rg /F1 9.8 Tf 62.0 468.1 Td (-  Migrated a legacy monolith toward microservices, coordinating rollout across two teams.) Tj ET
+BT 0.1 0.1 0.1 rg /F1 9.8 Tf 62.0 454.3 Td (-  Established the team's first automated pipeline \(lint -> test -> build -> deploy\).) Tj ET
+BT 0.059 0.463 0.431 rg /F2 9.5 Tf 56.0 434.5 Td (SKILLS) Tj ET
+0.8 0.8 0.8 RG 1 w 56 430.5 m 539.3 430.5 l S
+BT 0.059 0.463 0.431 rg /F2 10 Tf 56.0 422.5 Td (Languages:) Tj ET
+BT 0.1 0.1 0.1 rg /F1 10 Tf 112.0 422.5 Td (Java, TypeScript, Go, Python, Bash, SQL) Tj ET
+BT 0.059 0.463 0.431 rg /F2 10 Tf 56.0 407.5 Td (Infra / Cloud:) Tj ET
+BT 0.1 0.1 0.1 rg /F1 10 Tf 132.8 407.5 Td (Kubernetes, Docker, Terraform, AWS, Helm, Nginx / Gateway) Tj ET
+BT 0.059 0.463 0.431 rg /F2 10 Tf 56.0 392.5 Td (CI/CD & Tooling:) Tj ET
+BT 0.1 0.1 0.1 rg /F1 10 Tf 143.2 392.5 Td (GitHub Actions, ArgoCD / GitOps, Prometheus, Grafana, OpenTelemetry, pgvector) Tj ET
+BT 0.059 0.463 0.431 rg /F2 10 Tf 56.0 377.5 Td (Leadership:) Tj ET
+BT 0.1 0.1 0.1 rg /F1 10 Tf 117.2 377.5 Td (Tech lead & mentoring, on-call & incident response, architecture review, RFCs) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000263 00000 n 
+0000004023 00000 n 
+0000004093 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+4168
+%%EOF

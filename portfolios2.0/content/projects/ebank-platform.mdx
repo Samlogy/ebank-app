@@ -1,0 +1,106 @@
+---
+title: eBank — a 12-service banking platform
+summary: Designed and led a Spring Boot microservices platform with an API gateway, service discovery, centralized config and zero-downtime deploys — the backbone for a set of banking domains.
+tags: ['Spring Boot', 'Kubernetes', 'API Gateway', 'Docker']
+role: Platform & DevOps Lead (solo architect)
+year: '2024'
+order: 1
+repo: 'https://github.com/samlogy/ebank-app'
+demo: ''
+---
+
+## Context
+
+eBank started as a single Spring Boot monolith covering accounts, transfers and
+users. It shipped fine at first, but every change meant redeploying the whole
+app, and a slow query in one domain degraded all of them. The goal was to split
+the system into independently deployable services **without** turning it into a
+distributed monolith held together by hope.
+
+## My role
+
+Solo architect and platform lead. I owned the decomposition strategy, the
+gateway and service-discovery layer, the container and Kubernetes setup, and the
+CI/CD pipeline. Application teams owned their domain logic; I owned everything
+that let those services find each other, deploy safely and stay observable.
+
+## The decision
+
+The core decision was **how services talk and how they are found**. Three options
+were on the table:
+
+- **Hard-coded URLs + a load balancer per service** — simplest, but brittle:
+  every new service or scale event meant config changes and redeploys.
+- **A service mesh (Istio/Linkerd) from day one** — powerful, but a lot of
+  operational surface for a team of this size before we had the traffic to
+  justify it.
+- **Spring Cloud Gateway + a discovery/registry layer + centralized config** —
+  native to the Spring stack the team already knew, no extra runtime to learn.
+
+I chose the third. It gave us dynamic routing, one place to enforce auth and rate
+limits, and centralized configuration, while keeping the mental model inside the
+framework the team was already fluent in. A mesh stays on the roadmap for when
+cross-service mTLS and traffic shaping actually pay for their complexity.
+
+## What I built
+
+A gateway-fronted platform where every request enters through one edge, and
+services register themselves and pull config centrally:
+
+<Mermaid
+  caption="Request path: clients → gateway → discovery-routed services, with centralized config and an admin/observability plane."
+  chart={`flowchart LR
+  Client([Web / Mobile]) --> GW[Spring Cloud Gateway]
+  GW --> Disc{{Service Discovery}}
+  Disc --> Acct[Account Service]
+  Disc --> Txn[Transaction Service]
+  Disc --> User[User Service]
+  Disc --> Notif[Notification Service]
+  Cfg[(Config Server)] -. config .-> Acct
+  Cfg -. config .-> Txn
+  Cfg -. config .-> User
+  Acct --> DB[(PostgreSQL)]
+  Txn --> DB
+  Admin[Spring Admin + Metrics] -. health .-> Acct
+  Admin -. health .-> Txn`}
+/>
+
+Key components:
+
+- **Spring Cloud Gateway** as the single edge — routing, auth propagation and
+  rate limiting live here instead of being copy-pasted into each service.
+- **Service discovery** so services resolve each other by name; scaling a service
+  needs no gateway config change.
+- **Config Server** for centralized, environment-scoped configuration.
+- **Docker Compose** for a one-command local environment; **Kubernetes**
+  (Minikube → managed) for staging and production with rolling deploys.
+- **Spring Admin + metrics** for a live health view across every instance.
+
+## Challenges / tradeoffs
+
+The first cut used **synchronous calls between services for every read**. A slow
+Transaction service started causing timeouts in the Account service that called
+it — a textbook cascading failure.
+
+- **What broke:** a p99 spike in one service propagated into others through
+  blocking calls, turning one degraded service into three.
+- **Root cause:** tight synchronous coupling with no timeout/isolation budget.
+- **Fix:** introduced per-dependency timeouts and circuit breaking at the client,
+  and moved non-critical cross-service reads (like notifications) onto
+  asynchronous messaging so they could not block the request path.
+- **What changed after:** a single slow service now degrades gracefully instead of
+  taking neighbors down, and we added a dashboard panel per dependency so the next
+  regression is visible before it cascades.
+
+## Outcome
+
+- Independently deployable services — a change to one domain no longer redeploys
+  the platform.
+- One enforcement point for auth and rate limiting at the gateway.
+- Zero-downtime rolling deploys on Kubernetes, verified by health checks.
+- A local `docker compose up` that mirrors production topology, which cut new-dev
+  onboarding to under an hour.
+
+## Links
+
+- Repository: [github.com/samlogy/ebank-app](https://github.com/samlogy/ebank-app)

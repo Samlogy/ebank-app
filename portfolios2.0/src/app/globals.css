@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Respect users who prefer reduced motion. */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
+  body {
+    @apply bg-bg text-ink antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Light mode overrides — toggled by adding/removing `.dark` on <html>. */
+  html:not(.dark) body {
+    @apply bg-white text-zinc-900;
+  }
+  html:not(.dark) {
+    color-scheme: light;
+  }
+
+  ::selection {
+    @apply bg-accent/30 text-white;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-bg;
+  }
+  html:not(.dark) :focus-visible {
+    @apply ring-offset-white;
+  }
+}
+
+@layer components {
+  .container-content {
+    @apply mx-auto w-full max-w-content px-6 sm:px-8;
+  }
+
+  .eyebrow {
+    @apply font-mono text-xs uppercase tracking-[0.2em] text-accent;
+  }
+
+  .card {
+    @apply rounded-xl border border-line bg-bg-card/60 transition-colors duration-300;
+  }
+  html:not(.dark) .card {
+    @apply border-zinc-200 bg-zinc-50;
+  }
+
+  .link-underline {
+    @apply relative text-ink transition-colors hover:text-accent;
+  }
+}
+
+/* Nav + assorted surface overrides for light mode (base styles target dark). */
+html:not(.dark) .site-nav {
+  background-color: rgba(255, 255, 255, 0.72);
+  border-color: rgb(228 228 231);
+}
+html:not(.dark) .surface-soft {
+  background-color: rgb(250 250 250);
+}
+html:not(.dark) .text-ink {
+  color: rgb(24 24 27);
+}
+html:not(.dark) .text-ink-soft {
+  color: rgb(82 82 91);
+}
+html:not(.dark) .text-ink-faint {
+  color: rgb(113 113 122);
+}
+html:not(.dark) .border-line {
+  border-color: rgb(228 228 231);
+}
+
+/* Prose tuning for MDX case studies + writing. */
+.prose-portfolio {
+  @apply prose prose-invert max-w-none
+    prose-headings:scroll-mt-24 prose-headings:font-semibold
+    prose-a:text-accent prose-a:no-underline hover:prose-a:underline
+    prose-code:font-mono prose-code:text-accent
+    prose-pre:border prose-pre:border-line prose-pre:bg-bg-soft
+    prose-strong:text-ink prose-hr:border-line;
+}
+html:not(.dark) .prose-portfolio {
+  @apply prose-neutral prose-a:text-accent-deep;
+}

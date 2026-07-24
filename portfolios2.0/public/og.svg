@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="Sam Senani — Senior DevOps Engineer & Tech Lead">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0a0b"/>
+      <stop offset="1" stop-color="#111114"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.8" cy="0.15" r="0.7">
+      <stop offset="0" stop-color="#5eead4" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#5eead4" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <text x="80" y="150" font-family="ui-monospace, monospace" font-size="26" fill="#5eead4" letter-spacing="4">~/samlogy</text>
+  <text x="78" y="300" font-family="Inter, system-ui, sans-serif" font-size="84" font-weight="700" fill="#ededf0">Sam Senani</text>
+  <text x="80" y="372" font-family="ui-monospace, monospace" font-size="34" fill="#5eead4">Senior DevOps Engineer &amp; Tech Lead</text>
+  <text x="80" y="452" font-family="Inter, system-ui, sans-serif" font-size="30" fill="#a1a1aa">Platform &amp; infrastructure behind distributed banking systems.</text>
+  <g font-family="ui-monospace, monospace" font-size="24" fill="#a1a1aa">
+    <text x="80" y="540">45m → 4m deploys</text>
+    <text x="420" y="540">99.98% uptime</text>
+    <text x="720" y="540">2M+ req/day</text>
+  </g>
+  <rect x="80" y="565" width="1040" height="2" fill="#26262b"/>
+</svg>

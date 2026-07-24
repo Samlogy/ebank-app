@@ -1,0 +1,34 @@
+---
+title: How we redesigned our on-call rotation
+date: '2025-09-12'
+summary: Going from "whoever notices first" to a fair, low-noise rotation — and why alerting on symptoms instead of causes was the change that made it stick.
+tags: ['On-call', 'SRE', 'Process']
+---
+
+Most on-call horror stories aren't about too many incidents. They're about too
+many *pages* — the pager crying wolf until people mute it, and then a real
+incident slips through the muted noise.
+
+## The starting point
+
+We had no rotation. Incidents landed on whoever happened to be looking, which in
+practice meant the same two people every time. That's not a rotation, it's a slow
+way to lose your best engineers.
+
+## The three changes that mattered
+
+1. **Alert on symptoms, not causes.** We stopped paging on CPU and memory and
+   started paging on error-budget burn. A blip that self-resolves is a dashboard
+   line, not a 3am phone call.
+2. **Every alert links a runbook.** If a page doesn't come with "here's what this
+   means and the first thing to check," it's not ready to page anyone.
+3. **Blameless postmortems, always.** The output of an incident is a fix and a
+   changed system — never a name.
+
+## What changed
+
+Page volume dropped by about two-thirds, and the pages that survived were real.
+The rotation became something people trusted instead of dreaded — which, it turns
+out, is the whole point.
+
+> A pager you can trust is worth more than a dashboard you have to babysit.

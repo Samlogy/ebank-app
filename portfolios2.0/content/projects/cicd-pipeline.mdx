@@ -1,0 +1,88 @@
+---
+title: Cutting deploy time 45m → 4m
+summary: Rebuilt the build-and-release pipeline for a multi-service repo — layered Docker caching, parallel jobs and progressive delivery — turning a dreaded 45-minute deploy into a 4-minute, low-drama one.
+tags: ['GitHub Actions', 'Docker', 'GitOps', 'CI/CD']
+role: Tech Lead (drove the change, 2 contributors)
+year: '2024'
+order: 2
+repo: ''
+demo: ''
+---
+
+## Context
+
+Shipping the platform meant a 45-minute pipeline: every service rebuilt from
+scratch, images pushed serially, and a manual approval gate that people batched
+up until Friday. Long pipelines don't just waste time — they change behavior.
+Teams deploy less often, batches get bigger, and each release is riskier than the
+last.
+
+## My role
+
+Tech lead for the change. I designed the pipeline architecture and caching
+strategy and reviewed every step; two engineers paired with me to migrate the
+per-service jobs and write the smoke tests.
+
+## The decision
+
+The bottleneck was **rebuilding and re-pushing everything on every commit**, even
+for a one-line change in one service. Options:
+
+- **Buy faster runners** — throws money at the symptom, not the cause.
+- **A monorepo build tool (Bazel/Nx)** — real caching wins, but a large migration
+  and a new mental model for the whole team.
+- **Layer-aware Docker caching + change detection + parallelism** — smaller blast
+  radius, uses tools the team already ran.
+
+I went with the third and kept a build tool on the roadmap. Most of the win was
+just *not doing redundant work*: cache dependency layers, only build services
+that actually changed, and run independent jobs in parallel.
+
+## What I built
+
+<Mermaid
+  caption="Pipeline: detect changed services, build only those in parallel with cached layers, then progressive rollout."
+  chart={`flowchart LR
+  Push([git push]) --> Detect[Detect changed services]
+  Detect --> Build1[Build A - cached layers]
+  Detect --> Build2[Build B - cached layers]
+  Build1 --> Test[Parallel tests + smoke]
+  Build2 --> Test
+  Test --> Registry[(Image registry)]
+  Registry --> Deploy[GitOps sync]
+  Deploy --> Canary{Canary healthy?}
+  Canary -- yes --> Prod[Full rollout]
+  Canary -- no --> Rollback[Auto rollback]`}
+/>
+
+- **Change detection** so a commit only builds and deploys the services it
+  touched.
+- **Layered Docker builds** with a registry cache — dependency layers are reused
+  across runs instead of rebuilt.
+- **Parallel jobs** for independent services and test suites.
+- **Progressive delivery** — a canary step with an automated health check and
+  auto-rollback replaced the manual Friday gate.
+
+## Challenges / tradeoffs
+
+Aggressive caching created a subtle trap: a **stale base image** meant a security
+patch didn't actually make it into a service, even though the pipeline was green.
+
+- **Root cause:** the cache key didn't include the base-image digest, so a rebuilt
+  base was silently ignored.
+- **Fix:** pinned base images by digest and folded the digest into the cache key,
+  plus a scheduled nightly job that rebuilds from clean to catch drift.
+- **Tradeoff accepted:** the nightly clean build costs the full ~45 minutes once a
+  day — cheap insurance for fast, cache-hot builds the rest of the time.
+
+## Outcome
+
+- **Deploy time 45m → ~4m** for a typical single-service change.
+- Deploy frequency went from roughly weekly to multiple times a day.
+- Auto-rollback on a failed canary removed the manual approval gate without
+  lowering safety.
+- Smaller, more frequent releases made incidents easier to bisect.
+
+## Links
+
+Internal pipeline — architecture and config patterns available on request.
