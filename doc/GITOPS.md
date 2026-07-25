@@ -114,7 +114,7 @@ ebank-app/
 │       ├── ci.yml                    # PR gate: test, helm lint, docker build, trivy
 │       └── gitops-promote.yml        # On push to main/develop: build + update tag
 │
-└── ebank-monolith/
+└── monolith/
     ├── helm/                         # Helm chart (static, committed to Git)
     │   ├── Chart.yaml
     │   ├── values.yaml               # chart defaults
@@ -263,7 +263,7 @@ for NS in ebank-dev ebank-prod; do
 done
 
 # 2. Apply the App of Apps bootstrap
-kubectl apply -f ebank-monolith/gitops/argocd/bootstrap.yaml
+kubectl apply -f monolith/gitops/argocd/bootstrap.yaml
 
 # Argo CD will:
 #   - Create the 'ebank' AppProject
@@ -474,9 +474,9 @@ argocd app rollback ebank-monolith-prod <revision-number>
 ```bash
 # Update the values file directly and commit
 yq -i '.image.tag = "abc1234"' \
-  ebank-monolith/helm/environments/prod/values.yaml
+  monolith/helm/environments/prod/values.yaml
 
-git add ebank-monolith/helm/environments/prod/values.yaml
+git add monolith/helm/environments/prod/values.yaml
 git commit -m "gitops(prod): manual promotion to abc1234"
 git push origin main
 

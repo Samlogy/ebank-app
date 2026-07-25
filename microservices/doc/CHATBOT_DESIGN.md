@@ -251,7 +251,7 @@ réutiliser pour conserver le contexte de la conversation.
 ## 9. Tester en Docker Compose
 
 ```bash
-cd ebank-microservices
+cd microservices
 
 # 1. Fournir une clé LLM (OpenAI, Groq… ou pointer OPENAI_BASE_URL vers un Ollama local)
 export OPENAI_API_KEY=sk-VOTRE-CLE

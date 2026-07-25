@@ -24,9 +24,9 @@ spec:
     # Track the develop branch. Every merge to develop triggers a CI run that
     # updates environments/dev/values.yaml and Argo CD detects the new commit.
     targetRevision: develop
-    path: ebank-monolith/helm
+    path: monolith/helm
     helm:
-      # Value files are resolved relative to path (ebank-monolith/helm/).
+      # Value files are resolved relative to path (monolith/helm/).
       # Layer order (last wins):
       #   1. values.yaml          — chart defaults
       #   2. values-dev.yaml      — static dev config (Vault host, resources)

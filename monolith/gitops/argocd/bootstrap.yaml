@@ -2,7 +2,7 @@
 #
 # Apply this single manifest to seed the entire GitOps setup:
 #
-#   kubectl apply -f ebank-monolith/gitops/argocd/bootstrap.yaml
+#   kubectl apply -f monolith/gitops/argocd/bootstrap.yaml
 #
 # Argo CD will discover the AppProject and every Application in the
 # gitops/argocd/apps/ directory and manage them automatically.
@@ -32,7 +32,7 @@ spec:
     # targetRevision points to the branch Argo CD should track.
     # Change to 'main' once the gitops/ebank-monolith branch is merged.
     targetRevision: gitops/ebank-monolith
-    path: ebank-monolith/gitops/argocd
+    path: monolith/gitops/argocd
     directory:
       recurse: true        # picks up project.yaml + apps/*.yaml
       include: "*.yaml"

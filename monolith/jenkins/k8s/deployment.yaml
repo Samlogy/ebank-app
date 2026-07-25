@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # SUPPLEMENTARY — for manual / emergency kubectl deployments only.
-# The standard deployment path is the Helm chart at ebank-monolith/helm/.
+# The standard deployment path is the Helm chart at monolith/helm/.
 #
 # IMAGE_FULL is replaced at deploy time with envsubst:
 #   IMAGE_FULL=registry/ebank-monolith:tag envsubst '$IMAGE_FULL' \

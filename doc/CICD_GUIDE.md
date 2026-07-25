@@ -247,7 +247,7 @@ echo "$(minikube ip)  ebank.local" | sudo tee -a /etc/hosts
 1. **New Item** → `ebank-monolith` → **Pipeline**
 2. **Pipeline** → **Pipeline script from SCM**
 3. SCM: **Git** → URL de votre dépôt
-4. Script Path: `ebank-monolith/jenkins/Jenkinsfile`
+4. Script Path: `monolith/jenkins/Jenkinsfile`
 5. **Save** → **Build Now**
 
 ---
@@ -1097,7 +1097,7 @@ apt install -y chromium-browser
 
 ```bash
 # Vérifier que le fichier existe dans le workspace Jenkins :
-ls -la ebank-monolith/jenkins/e2e/ebank-api.postman_collection.json
+ls -la monolith/jenkins/e2e/ebank-api.postman_collection.json
 # Vérifier que le checkout SCM a bien récupéré tous les fichiers
 ```
 
@@ -1122,7 +1122,7 @@ python3 -m checkov --version
 ## Structure Complète des Fichiers
 
 ```
-ebank-monolith/jenkins/
+monolith/jenkins/
 ├── Jenkinsfile                           ← Pipeline principal (CI + CD complet)
 ├── CICD_GUIDE.md                         ← Ce fichier
 ├── config/

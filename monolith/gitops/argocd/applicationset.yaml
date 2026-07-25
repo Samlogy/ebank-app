@@ -51,7 +51,7 @@ spec:
       source:
         repoURL: https://github.com/samlogy/ebank-app
         targetRevision: "{{ .branch }}"
-        path: ebank-monolith/helm
+        path: monolith/helm
         helm:
           valueFiles:
             - values.yaml

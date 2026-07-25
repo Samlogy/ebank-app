@@ -18,7 +18,7 @@ spec:
     # Track main. The CI pipeline commits a new image tag to
     # environments/prod/values.yaml after every successful main build.
     targetRevision: main
-    path: ebank-monolith/helm
+    path: monolith/helm
     helm:
       valueFiles:
         - values.yaml

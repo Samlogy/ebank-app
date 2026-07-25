@@ -11,7 +11,7 @@
 ```bash
 # Navigate to project directory
 cd /home/sam/Desktop/ebank
-cd ebank-monolith
+cd monolith
 
 # Initialize Maven project structure manually
 # OR use Spring Boot CLI (if you have it):
@@ -26,7 +26,7 @@ mkdir -p src/main/java/com/ebank/{common,auth,account,transaction}/{config,servi
 
 The main Maven file that defines dependencies and build config.
 
-**Location**: `/home/sam/Desktop/ebank/ebank-monolith/pom.xml`
+**Location**: `/home/sam/Desktop/ebank/monolith/pom.xml`
 
 Key dependencies:
 - Spring Boot 3.3.x (latest LTS)

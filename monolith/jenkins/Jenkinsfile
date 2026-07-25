@@ -116,14 +116,13 @@ pipeline {
                 stage('Validation Conformité') {
                     steps {
                         sh '''
-                            cd ebank-monolith
-                            chmod +x ./mvnw
+                            cd monolith
 
                             echo "── Maven Enforcer ──"
-                            ./mvnw enforcer:enforce -B --no-transfer-progress
+                            mvn enforcer:enforce -B --no-transfer-progress
 
                             echo "── Checkstyle ──"
-                            ./mvnw checkstyle:check -B --no-transfer-progress \
+                            mvn checkstyle:check -B --no-transfer-progress \
                                 -Dcheckstyle.config.location=jenkins/config/checkstyle.xml \
                                 -Dcheckstyle.failOnViolation=true
                         '''
@@ -132,7 +131,7 @@ pipeline {
                         always {
                             // Affiche les violations Checkstyle dans l'UI Jenkins
                             recordIssues(
-                                tools: [checkStyle(pattern: 'ebank-monolith/target/checkstyle-result.xml')],
+                                tools: [checkStyle(pattern: 'monolith/target/checkstyle-result.xml')],
                                 qualityGates: [[threshold: 1, type: 'TOTAL_HIGH', unstable: true]]
                             )
                         }
@@ -145,13 +144,13 @@ pipeline {
                 stage('Build') {
                     steps {
                         sh '''
-                            cd ebank-monolith
-                            ./mvnw clean package -DskipTests -B --no-transfer-progress
+                            cd monolith
+                            mvn clean package -DskipTests -B --no-transfer-progress
                         '''
                     }
                     post {
                         success {
-                            archiveArtifacts artifacts: 'ebank-monolith/target/*.jar', fingerprint: true
+                            archiveArtifacts artifacts: 'monolith/target/*.jar', fingerprint: true
                         }
                     }
                 }
@@ -164,8 +163,8 @@ pipeline {
                 stage('Tests Unitaires') {
                     steps {
                         sh '''
-                            cd ebank-monolith
-                            ./mvnw test -B --no-transfer-progress \
+                            cd monolith
+                            mvn test -B --no-transfer-progress \
                                 -Dtest="*Test" \
                                 -DfailIfNoTests=false
                         '''
@@ -173,7 +172,7 @@ pipeline {
                     post {
                         always {
                             junit(
-                                testResults: 'ebank-monolith/target/surefire-reports/*.xml',
+                                testResults: 'monolith/target/surefire-reports/*.xml',
                                 allowEmptyResults: true
                             )
                         }
@@ -187,8 +186,8 @@ pipeline {
                 stage('Tests Intégration') {
                     steps {
                         sh '''
-                            cd ebank-monolith
-                            ./mvnw verify -B --no-transfer-progress \
+                            cd monolith
+                            mvn verify -B --no-transfer-progress \
                                 -Dtest="*IT,*IntegrationTest,*ControllerTest" \
                                 -DfailIfNoTests=false
                         '''
@@ -196,7 +195,7 @@ pipeline {
                     post {
                         always {
                             junit(
-                                testResults: 'ebank-monolith/target/failsafe-reports/*.xml',
+                                testResults: 'monolith/target/failsafe-reports/*.xml',
                                 allowEmptyResults: true
                             )
                         }
@@ -214,8 +213,8 @@ pipeline {
                         stage('Analyse Dépendances (OWASP)') {
                             steps {
                                 sh '''
-                                    cd ebank-monolith
-                                    ./mvnw org.owasp:dependency-check-maven:check \
+                                    cd monolith
+                                    mvn org.owasp:dependency-check-maven:check \
                                         -B --no-transfer-progress \
                                         -DfailBuildOnCVSS=7 \
                                         -DsuppressionFile=jenkins/config/dependency-suppression.xml \
@@ -227,12 +226,12 @@ pipeline {
                                 always {
                                     publishHTML([
                                         allowMissing: true,
-                                        reportDir:   'ebank-monolith/target',
+                                        reportDir:   'monolith/target',
                                         reportFiles: 'dependency-check-report.html',
                                         reportName:  'OWASP Dependency Report',
                                         keepAll:     true
                                     ])
-                                    archiveArtifacts artifacts: 'ebank-monolith/target/dependency-check-report.json',
+                                    archiveArtifacts artifacts: 'monolith/target/dependency-check-report.json',
                                                      allowEmptyArchive: true
                                 }
                             }
@@ -245,14 +244,14 @@ pipeline {
                         stage('Analyse SBOM (CycloneDX)') {
                             steps {
                                 sh '''
-                                    cd ebank-monolith
-                                    ./mvnw org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom \
+                                    cd monolith
+                                    mvn org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom \
                                         -B --no-transfer-progress
                                 '''
                             }
                             post {
                                 always {
-                                    archiveArtifacts artifacts: 'ebank-monolith/target/bom.*',
+                                    archiveArtifacts artifacts: 'monolith/target/bom.*',
                                                      fingerprint: true,
                                                      allowEmptyArchive: true
                                 }
@@ -272,8 +271,8 @@ pipeline {
                                 string(credentialsId: env.SONAR_CRED_ID, variable: 'SONAR_TOKEN')
                             ]) {
                                 sh '''
-                                    cd ebank-monolith
-                                    ./mvnw sonar:sonar -B --no-transfer-progress \
+                                    cd monolith
+                                    mvn sonar:sonar -B --no-transfer-progress \
                                         -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
                                         -Dsonar.host.url=${SONAR_HOST_URL} \
                                         -Dsonar.token=${SONAR_TOKEN} \
@@ -310,7 +309,7 @@ pipeline {
                                 --label build-number=${env.BUILD_NUMBER} \
                                 --label branch=${env.BRANCH_NAME} \
                                 --label pipeline=jenkins \
-                                ebank-monolith/
+                                monolith/
                         """
                     }
                 }
@@ -327,19 +326,19 @@ pipeline {
                         stage('CVE Scan (Trivy)') {
                             steps {
                                 sh """
-                                    mkdir -p ebank-monolith/target
+                                    mkdir -p monolith/target
                                     trivy image \
                                         --exit-code 1 \
                                         --severity HIGH,CRITICAL \
                                         --no-progress \
                                         --format json \
-                                        --output ebank-monolith/target/trivy-image-report.json \
+                                        --output monolith/target/trivy-image-report.json \
                                         ${DOCKER_IMAGE}:${IMAGE_TAG}
                                 """
                             }
                             post {
                                 always {
-                                    archiveArtifacts artifacts: 'ebank-monolith/target/trivy-image-report.json',
+                                    archiveArtifacts artifacts: 'monolith/target/trivy-image-report.json',
                                                      allowEmptyArchive: true
                                 }
                             }
@@ -352,21 +351,21 @@ pipeline {
                         stage('Dockerfile Lint (Hadolint)') {
                             steps {
                                 sh '''
-                                    mkdir -p ebank-monolith/target
+                                    mkdir -p monolith/target
                                     hadolint \
                                         --format json \
-                                        ebank-monolith/Dockerfile \
-                                        > ebank-monolith/target/hadolint-report.json || true
+                                        monolith/Dockerfile \
+                                        > monolith/target/hadolint-report.json || true
 
                                     # Échec uniquement sur les erreurs (pas les warnings)
                                     hadolint \
                                         --failure-threshold error \
-                                        ebank-monolith/Dockerfile
+                                        monolith/Dockerfile
                                 '''
                             }
                             post {
                                 always {
-                                    archiveArtifacts artifacts: 'ebank-monolith/target/hadolint-report.json',
+                                    archiveArtifacts artifacts: 'monolith/target/hadolint-report.json',
                                                      allowEmptyArchive: true
                                 }
                             }
@@ -381,18 +380,18 @@ pipeline {
                         stage('IaC Scan (Checkov)') {
                             steps {
                                 sh '''
-                                    mkdir -p ebank-monolith/target
+                                    mkdir -p monolith/target
 
                                     echo "── Checkov : manifests Kubernetes ──"
-                                    checkov -d ebank-monolith/jenkins/k8s \
+                                    checkov -d monolith/jenkins/k8s \
                                         --framework kubernetes \
                                         --output json \
-                                        --output-file-path ebank-monolith/target/checkov-k8s-report.json \
+                                        --output-file-path monolith/target/checkov-k8s-report.json \
                                         --compact \
                                         --soft-fail || true
 
                                     echo "── Checkov : Dockerfile ──"
-                                    checkov -f ebank-monolith/Dockerfile \
+                                    checkov -f monolith/Dockerfile \
                                         --framework dockerfile \
                                         --compact \
                                         --soft-fail || true
@@ -400,7 +399,7 @@ pipeline {
                             }
                             post {
                                 always {
-                                    archiveArtifacts artifacts: 'ebank-monolith/target/checkov-k8s-report.json',
+                                    archiveArtifacts artifacts: 'monolith/target/checkov-k8s-report.json',
                                                      allowEmptyArchive: true
                                 }
                             }
@@ -460,7 +459,7 @@ pipeline {
                         ]) {
                             script {
                                 def gitopsEnv = (env.BRANCH_NAME == 'main') ? 'prod' : 'dev'
-                                def valuesFile = "ebank-monolith/helm/environments/${gitopsEnv}/values.yaml"
+                                def valuesFile = "monolith/helm/environments/${gitopsEnv}/values.yaml"
 
                                 sh """
                                     # Authenticate with GitHub using the PAT
@@ -540,10 +539,10 @@ pipeline {
                                     #    --timeout   : matches Spring Boot's max startup window
                                     #                  (startupProbe: 12 × 10 s = 2 min, plus
                                     #                   Vault fetch and readiness probe window).
-                                    helm upgrade --install ${APP_NAME} ebank-monolith/helm \
+                                    helm upgrade --install ${APP_NAME} monolith/helm \
                                         --namespace ${K8S_NAMESPACE} \
                                         --create-namespace \
-                                        -f ebank-monolith/helm/${helmValues} \
+                                        -f monolith/helm/${helmValues} \
                                         --set image.repository=${DOCKER_IMAGE} \
                                         --set image.tag=${IMAGE_TAG} \
                                         --atomic \
@@ -564,8 +563,8 @@ pipeline {
                             file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
                         ]) {
                             sh """
-                                chmod +x ebank-monolith/jenkins/scripts/smoke-test.sh
-                                bash ebank-monolith/jenkins/scripts/smoke-test.sh \
+                                chmod +x monolith/jenkins/scripts/smoke-test.sh
+                                bash monolith/jenkins/scripts/smoke-test.sh \
                                     ${APP_NAME} ${K8S_NAMESPACE}
                             """
                         }
@@ -621,10 +620,10 @@ pipeline {
                         stage('Tests E2E (Newman)') {
                             steps {
                                 sh """
-                                    newman run ebank-monolith/jenkins/e2e/ebank-api.postman_collection.json \
+                                    newman run monolith/jenkins/e2e/ebank-api.postman_collection.json \
                                         --env-var "baseUrl=${APP_BASE_URL}" \
                                         --reporters cli,junit \
-                                        --reporter-junit-export ebank-monolith/target/e2e-results.xml \
+                                        --reporter-junit-export monolith/target/e2e-results.xml \
                                         --reporter-junit-export-name "E2E Tests" \
                                         --timeout-request 10000 \
                                         --delay-request 200 \
@@ -634,7 +633,7 @@ pipeline {
                             post {
                                 always {
                                     junit(
-                                        testResults: 'ebank-monolith/target/e2e-results.xml',
+                                        testResults: 'monolith/target/e2e-results.xml',
                                         allowEmptyResults: true
                                     )
                                 }
@@ -650,21 +649,21 @@ pipeline {
                 stage('Accessibilité (RGAA/WCAG)') {
                     steps {
                         sh """
-                            mkdir -p ebank-monolith/target
+                            mkdir -p monolith/target
 
                             # Rapport HTML (WCAG 2.1 AA)
                             pa11y "${APP_BASE_URL}/swagger-ui/index.html" \
                                 --standard WCAG2AA \
                                 --reporter html \
                                 --timeout 30000 \
-                                > ebank-monolith/target/pa11y-report.html || true
+                                > monolith/target/pa11y-report.html || true
 
                             # Rapport JSON pour intégration CI
                             pa11y "${APP_BASE_URL}/swagger-ui/index.html" \
                                 --standard WCAG2AA \
                                 --reporter json \
                                 --timeout 30000 \
-                                > ebank-monolith/target/pa11y-report.json || true
+                                > monolith/target/pa11y-report.json || true
 
                             # Afficher le résumé dans les logs
                             pa11y "${APP_BASE_URL}/swagger-ui/index.html" \
@@ -678,12 +677,12 @@ pipeline {
                         always {
                             publishHTML([
                                 allowMissing: true,
-                                reportDir:   'ebank-monolith/target',
+                                reportDir:   'monolith/target',
                                 reportFiles: 'pa11y-report.html',
                                 reportName:  'Accessibilité — RGAA/WCAG 2.1 AA',
                                 keepAll:     true
                             ])
-                            archiveArtifacts artifacts: 'ebank-monolith/target/pa11y-report.json',
+                            archiveArtifacts artifacts: 'monolith/target/pa11y-report.json',
                                              allowEmptyArchive: true
                         }
                     }
@@ -700,32 +699,32 @@ pipeline {
                             file(credentialsId: env.KUBECONFIG_CRED_ID, variable: 'KUBECONFIG')
                         ]) {
                             sh """
-                                mkdir -p ebank-monolith/target
+                                mkdir -p monolith/target
 
                                 echo "── EcoIndex CLI ──"
                                 npx --yes ecoindex-cli analyze \
                                     --url "${APP_BASE_URL}/swagger-ui/index.html" \
                                     --format json \
-                                    > ebank-monolith/target/ecoindex-report.json || true
+                                    > monolith/target/ecoindex-report.json || true
 
                                 echo "── Ressources K8s (kubectl top) ──"
                                 kubectl top pods -n ${K8S_NAMESPACE} \
                                     --sort-by=cpu \
-                                    > ebank-monolith/target/k8s-resource-usage.txt || true
+                                    > monolith/target/k8s-resource-usage.txt || true
 
                                 kubectl top nodes \
-                                    >> ebank-monolith/target/k8s-resource-usage.txt || true
+                                    >> monolith/target/k8s-resource-usage.txt || true
 
                                 echo "── Résumé Green IT ──"
-                                cat ebank-monolith/target/ecoindex-report.json || true
-                                cat ebank-monolith/target/k8s-resource-usage.txt || true
+                                cat monolith/target/ecoindex-report.json || true
+                                cat monolith/target/k8s-resource-usage.txt || true
                             """
                         }
                     }
                     post {
                         always {
-                            archiveArtifacts artifacts: '''ebank-monolith/target/ecoindex-report.json,
-                                                          ebank-monolith/target/k8s-resource-usage.txt''',
+                            archiveArtifacts artifacts: '''monolith/target/ecoindex-report.json,
+                                                          monolith/target/k8s-resource-usage.txt''',
                                              allowEmptyArchive: true
                         }
                     }

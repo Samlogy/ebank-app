@@ -7,7 +7,7 @@
 ## 1. Project Structure
 
 ```
-ebank-monolith/
+monolith/
 ├── .mvn/wrapper/                           # Maven wrapper
 ├── src/
 │   ├── main/

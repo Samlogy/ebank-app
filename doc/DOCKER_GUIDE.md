@@ -24,7 +24,7 @@ The stack contains two containers:
 
 ```bash
 # 1. Clone / enter the project
-cd ebank-monolith
+cd monolith
 
 # 2. Create your environment file
 cp .env.example .env

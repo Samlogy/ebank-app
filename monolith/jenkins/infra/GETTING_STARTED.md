@@ -246,7 +246,7 @@ sysctl vm.max_map_count    # doit afficher 524288
 
 ```bash
 # ── 1. Se placer dans le bon répertoire ──────────────────────────────────
-cd ebank-monolith/jenkins/infra
+cd monolith/jenkins/infra
 
 # ── 2. Créer le fichier de configuration ─────────────────────────────────
 cp .env.example .env
@@ -542,7 +542,7 @@ Avant de créer le job, adapter le Jenkinsfile à votre Docker Hub username :
 
 ```bash
 # Ouvrir le Jenkinsfile
-nano ebank-monolith/jenkins/Jenkinsfile
+nano monolith/jenkins/Jenkinsfile
 
 # Ligne 18 — remplacer "yourdockerhub" par votre username Docker Hub
 DOCKER_HUB_USER = "votre-username-docker-hub"
@@ -551,7 +551,7 @@ DOCKER_HUB_USER = "votre-username-docker-hub"
 Sauvegarder et commiter :
 
 ```bash
-git add ebank-monolith/jenkins/Jenkinsfile
+git add monolith/jenkins/Jenkinsfile
 git commit -m "chore: configure Docker Hub username in Jenkinsfile"
 git push
 ```
@@ -583,7 +583,7 @@ SCM        : Git
 Repository URL : https://github.com/votre-user/votre-repo.git
    (ou l'URL de votre dépôt local : file:///home/sam/Desktop/ebank)
 Branch     : */main
-Script Path: ebank-monolith/jenkins/Jenkinsfile
+Script Path: monolith/jenkins/Jenkinsfile
 ```
 
 Cliquer **Save**.
@@ -596,7 +596,7 @@ Avant le premier déploiement, créer le namespace et les secrets K8s :
 
 ```bash
 # ── Namespace ─────────────────────────────────────────────────────────────
-kubectl apply -f ebank-monolith/jenkins/k8s/namespace.yaml
+kubectl apply -f monolith/jenkins/k8s/namespace.yaml
 
 # ── Secret (credentials de l'app) ────────────────────────────────────────
 # Remplacer les valeurs par vos vraies valeurs !
@@ -844,7 +844,7 @@ kubectl logs -l app=ebank-monolith -n ebank --tail=100 -f
 kubectl describe pod <nom-du-pod> -n ebank
 
 # Rollback manuel
-bash ebank-monolith/jenkins/scripts/rollback.sh ebank-monolith ebank
+bash monolith/jenkins/scripts/rollback.sh ebank-monolith ebank
 
 # Supprimer tout dans le namespace
 kubectl delete all --all -n ebank

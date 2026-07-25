@@ -7,9 +7,9 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - "ebank-monolith/src/**"
-      - "ebank-monolith/pom.xml"
-      - "ebank-monolith/Dockerfile"
+      - "monolith/src/**"
+      - "monolith/pom.xml"
+      - "monolith/Dockerfile"
   # Allow manual promotion (e.g. hotfix without a code change)
   workflow_dispatch:
     inputs:
@@ -51,16 +51,16 @@ jobs:
             echo "name=dev" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Java 17 (Maven build cache)
+      - name: Set up Java 21 (Maven build cache)
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: "21"
           distribution: temurin
           cache: maven
 
       - name: Run tests before building image
-        working-directory: ebank-monolith
-        run: ./mvnw test -B --no-transfer-progress -DfailIfNoTests=false
+        working-directory: monolith
+        run: mvn test -B --no-transfer-progress -DfailIfNoTests=false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -87,7 +87,7 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
-          context: ebank-monolith
+          context: monolith
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -126,7 +126,7 @@ jobs:
           IMAGE_TAG: ${{ needs.build-push.outputs.image-tag }}
           GITOPS_ENV: ${{ needs.build-push.outputs.environment }}
         run: |
-          VALUES_FILE="ebank-monolith/helm/environments/${GITOPS_ENV}/values.yaml"
+          VALUES_FILE="monolith/helm/environments/${GITOPS_ENV}/values.yaml"
 
           echo "Updating ${VALUES_FILE} → image.tag=${IMAGE_TAG}"
           yq -i ".image.tag = \"${IMAGE_TAG}\"" "${VALUES_FILE}"
@@ -143,7 +143,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add "ebank-monolith/helm/environments/${GITOPS_ENV}/values.yaml"
+          git add "monolith/helm/environments/${GITOPS_ENV}/values.yaml"
 
           # Only commit if there is actually a change (idempotent on re-runs)
           if git diff --cached --quiet; then
